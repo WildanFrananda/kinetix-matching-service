@@ -77,6 +77,38 @@ defmodule FleetPulseWeb.DispatchLive do
   end
 
   @impl Phoenix.LiveView
+  @spec handle_event(String.t(), map(), Socket.t()) :: {:noreply, Socket.t()}
+  def handle_event("approve_driver", %{"id" => id}, socket) when is_binary(id) do
+    driver_id = String.to_integer(id)
+
+    case Tracking.approve_driver(driver_id) do
+      {:ok, _driver} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Driver ##{driver_id} successfully approved!")
+         |> assign(:pending_approval, Tracking.list_pending_drivers())}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to approved driver.")}
+    end
+  end
+
+  def handle_event("reject_driver", %{"id" => id}, socket) when is_binary(id) do
+    driver_id = String.to_integer(id)
+
+    case Tracking.reject_driver(driver_id) do
+      {:ok, _driver} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Driver ##{driver_id} registration rejected.")
+         |> assign(:pending_approval, Tracking.list_pending_drivers())}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to reject driver.")}
+    end
+  end
+
+  @impl Phoenix.LiveView
   @spec render(map()) :: Rendered.t()
   def render(assigns) do
     ~H"""
@@ -155,6 +187,39 @@ defmodule FleetPulseWeb.DispatchLive do
         <:col :let={driver} label="Speed">{speed(driver.speed_kmh)}</:col>
         <:col :let={driver} label="Last seen">{seen(driver.synced_at)}</:col>
       </.table>
+      <%!-- Pending Driver Approvals Section --%>
+      <%= if length(@pending_approval) > 0 do %>
+        <div class="mt-10 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-6">
+          <h3 class="text-lg font-bold text-amber-400 mb-4 flex items-center gap-2">
+            <span>⚠️ Pending Admin Approval ({length(@pending_approval)})</span>
+          </h3>
+
+          <.table id="pending-drivers" rows={@pending_approval}>
+            <:col :let={driver} label="Name">{driver.name}</:col>
+            <:col :let={driver} label="Phone">{driver.phone}</:col>
+            <:col :let={driver} label="Vehicle Plate">{driver.vehicle_plate}</:col>
+            <:col :let={driver} label="Capacity">{driver.capacity_kg} kg</:col>
+            <:col :let={driver} label="Actions">
+              <div class="flex gap-2">
+                <.button
+                  phx-click="approve_driver"
+                  phx-value-id={driver.id}
+                  class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-3 py-1 rounded"
+                >
+                  Approve
+                </.button>
+                <.button
+                  phx-click="reject_driver"
+                  phx-value-id={driver.id}
+                  class="bg-rose-600 hover:bg-rose-500 text-white text-xs px-3 py-1 rounded"
+                >
+                  Reject
+                </.button>
+              </div>
+            </:col>
+          </.table>
+        </div>
+      <% end %>
     </Layouts.app>
     """
   end
@@ -171,9 +236,11 @@ defmodule FleetPulseWeb.DispatchLive do
   @spec assign_fleet(Socket.t()) :: Socket.t()
   defp assign_fleet(socket) do
     drivers = Map.new(Tracking.list_tracked(), &{&1.driver_id, &1})
+    pending_approval = Tracking.list_pending_drivers()
 
     socket
     |> assign(:drivers, drivers)
+    |> assign(:pending_approval, pending_approval)
     |> assign(:pending, %{})
   end
 

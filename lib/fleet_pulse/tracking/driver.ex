@@ -85,6 +85,20 @@ defmodule FleetPulse.Tracking.Driver do
   end
 
   @doc """
+  Changeset for new driver registrations.
+  Enforces `active: false` (pending approval) and hashes the virtual password.
+  """
+  @spec registration_changeset(t(), map()) :: changeset()
+  def registration_changeset(%__MODULE__{} = driver, attrs) when is_map(attrs) do
+    driver
+    |> changeset(Map.put(attrs, "active", false))
+    |> cast(attrs, [:password])
+    |> validate_required([:password])
+    |> validate_length(:password, min: 12, max: @max_password_bytes, count: :bytes)
+    |> put_password_hash()
+  end
+
+  @doc """
   Changeset for setting or changing a driver's login password.
 
   The plaintext lives only in the virtual `:password` field; it is hashed into

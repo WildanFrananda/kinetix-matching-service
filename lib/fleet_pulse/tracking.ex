@@ -175,21 +175,68 @@ defmodule FleetPulse.Tracking do
     |> Repo.update()
   end
 
+  @doc """
+  Registers a new driver with `active: false` (pending admin approval).
+  """
+  @spec register_driver(map()) :: {:ok, Driver.t()} | {:error, Driver.changeset()}
+  def register_driver(attrs) when is_map(attrs) do
+    %Driver{}
+    |> Driver.registration_changeset(attrs)
+    |> Repo.insert()
+  end
+
+  @doc """
+  Lists all drivers waiting for admin approval.
+  """
+  @spec list_pending_drivers() :: [Driver.t()]
+  def list_pending_drivers do
+    Driver
+    |> where([d], d.active == false)
+    |> order_by([d], asc: d.inserted_at)
+    |> Repo.all()
+  end
+
+  @doc """
+  Approves a pending driver account.
+  """
+  @spec approve_driver(Types.id()) ::
+          {:ok, Driver.t()} | {:error, :not_found | Driver.changeset()}
+  def approve_driver(driver_id) do
+    with {:ok, driver} <- fetch_driver(driver_id) do
+      driver
+      |> Driver.changeset(%{active: true})
+      |> Repo.update()
+    end
+  end
+
+  @doc """
+  Rejects and removes a pending driver registration.
+  """
+  @spec reject_driver(Types.id()) :: {:ok, Driver.t()} | {:error, :not_found | Ecto.Changeset.t()}
+  def reject_driver(driver_id) do
+    with {:ok, driver} <- fetch_driver(driver_id) do
+      Repo.delete(driver)
+    end
+  end
+
   @spec verify_driver(Driver.t() | nil, String.t()) ::
-          {:ok, Driver.t()} | {:error, :invalid_credentials}
+          {:ok, Driver.t()} | {:error, :invalid_credentials | :pending_approval}
   defp verify_driver(%Driver{} = driver, password) do
-    driver_authorised(Driver.valid_password?(driver, password), driver)
+    if Driver.valid_password?(driver, password) do
+      if driver.active do
+        {:ok, driver}
+      else
+        {:error, :pending_approval}
+      end
+    else
+      {:error, :invalid_credentials}
+    end
   end
 
   defp verify_driver(nil, _password) do
     Bcrypt.no_user_verify()
     {:error, :invalid_credentials}
   end
-
-  @spec driver_authorised(boolean(), Driver.t()) ::
-          {:ok, Driver.t()} | {:error, :invalid_credentials}
-  defp driver_authorised(true, driver), do: {:ok, driver}
-  defp driver_authorised(false, _driver), do: {:error, :invalid_credentials}
 
   @spec persist_status(Driver.t(), Driver.status()) ::
           {:ok, Driver.t()} | {:error, Driver.changeset()}

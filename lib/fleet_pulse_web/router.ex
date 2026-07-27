@@ -39,6 +39,7 @@ defmodule FleetPulseWeb.Router do
     pipe_through :api
 
     post "/driver/session", DriverSessionController, :create
+    post "/driver/register", DriverRegistrationController, :create
   end
 
   # Other scopes may use custom stacks.
