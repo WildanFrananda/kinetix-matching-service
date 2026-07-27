@@ -55,7 +55,25 @@ defmodule FleetPulseWeb.DispatchLive do
 
   def handle_info(:flush, socket) do
     _timer = schedule_flush()
-    {:noreply, flush(socket)}
+    socket = flush(socket)
+
+    driver_payloads =
+      socket.assigns.drivers
+      |> Map.values()
+      |> Enum.reject(&is_nil(&1.coordinates))
+      |> Enum.map(fn d ->
+        {lat, lng} = d.coordinates
+
+        %{
+          id: d.driver_id,
+          status: d.status,
+          lat: lat,
+          lng: lng,
+          speed: d.speed_kmh
+        }
+      end)
+
+    {:noreply, push_event(socket, "fleet_updated", %{drivers: driver_payloads})}
   end
 
   @impl Phoenix.LiveView
@@ -64,9 +82,71 @@ defmodule FleetPulseWeb.DispatchLive do
     ~H"""
     <Layouts.app flash={@flash}>
       <.header>
-        Dispatch
+        Dispatch Center
         <:subtitle>{map_size(@drivers)} driver(s) tracked</:subtitle>
       </.header>
+
+      <div class="my-6">
+        <div
+          id="fleet-map-container"
+          phx-hook=".FleetMap"
+          phx-update="ignore"
+          class="h-[520px] w-full rounded-2xl border border-slate-700 shadow-2xl overflow-hidden"
+        >
+        </div>
+      </div>
+
+      <script :type={Phoenix.LiveView.ColocatedHook} name=".FleetMap">
+        import L from "leaflet"
+
+        export default {
+          mounted() {
+            this.map = L.map(this.el).setView([-6.2088, 106.8456], 12)
+            this.markers = {}
+
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+              attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+              subdomains: 'abcd',
+              maxZoom: 19
+            }).addTo(this.map)
+
+            this.handleEvent("fleet_updated", ({ drivers }) => {
+              const bounds = []
+
+              drivers.forEach(driver => {
+                const latLng = [driver.lat, driver.lng]
+                bounds.push(latLng)
+
+                if (this.markers[driver.id]) {
+                  this.markers[driver.id].setLatLng(latLng)
+                  this.markers[driver.id].getPopup().setContent(this.popupContent(driver))
+                } else {
+                  const marker = L.circleMarker(latLng)
+                    .addTo(this.map)
+                    .bindPopup(this.popupContent(driver))
+                  this.markers[driver.id] = marker
+                }
+              })
+
+              if (bounds.length > 0 && !this.userHasZoomed) {
+                this.map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 })
+                this.userHasZoomed = true
+              }
+            })
+          },
+
+          popupContent(driver) {
+            const speed = driver.speed ? Math.round(driver.speed * 10) / 10 : 0;
+            return `
+              <div class="p-1 text-slate-900 font-sans">
+                <div class="font-bold text-sm">🚚 Driver #${driver.id}</div>
+                <div class="text-xs text-slate-600 mt-1">Status: <span class="font-semibold uppercase text-blue-600">${driver.status}</span></div>
+                <div class="text-xs text-slate-600">Speed: <span class="font-semibold">${speed} km/h</span></div>
+              </div>
+            `
+          }
+        }
+      </script>
 
       <.table id="drivers" rows={rows(@drivers)}>
         <:col :let={driver} label="Driver">{driver.driver_id}</:col>
