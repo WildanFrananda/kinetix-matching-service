@@ -15,6 +15,8 @@ defmodule FleetPulse.Dispatch.Events do
 
   @pubsub FleetPulse.PubSub
 
+  @orders_topic "dispatch:orders"
+
   @typedoc "Every message a dispatch subscriber can receive."
   @type event :: {:order_assigned, Order.t()} | {:order_updated, Order.t()}
 
@@ -32,5 +34,19 @@ defmodule FleetPulse.Dispatch.Events do
   @spec broadcast(Types.id(), event()) :: :ok
   def broadcast(driver_id, event) do
     :ok = Phoenix.PubSub.broadcast(@pubsub, driver_topic(driver_id), event)
+  end
+
+  @doc """
+  Fleet-wide order topic — the dispatch board subscribes here to see every
+  order change live, whoever caused it (dispatcher, driver, or API).
+  """
+  @spec subscribe_orders() :: subscribe_result()
+  def subscribe_orders do
+    Phoenix.PubSub.subscribe(@pubsub, @orders_topic)
+  end
+
+  @spec broadcast_order(Order.t()) :: :ok
+  def broadcast_order(%Order{} = order) do
+    :ok = Phoenix.PubSub.broadcast(@pubsub, @orders_topic, {:order_changed, order})
   end
 end

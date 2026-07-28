@@ -163,5 +163,24 @@ defmodule FleetPulseWeb.DispatchLiveTest do
 
       refute has_element?(view, selector)
     end
+
+    test "reflects an order change made elsewhere, with no dispatcher action", %{conn: conn} do
+      {:ok, order} =
+        FleetPulse.Dispatch.create_order(%{
+          pickup_latitude: -6.2,
+          pickup_longitude: 106.8,
+          dropoff_latitude: -6.9,
+          dropoff_longitude: 107.6,
+          weight_kg: 50
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/dispatch")
+      selector = "button[phx-value-id='#{order.id}'][phx-click='cancel_order']"
+      assert has_element?(view, selector)
+
+      {:ok, _} = FleetPulse.Dispatch.cancel_order(order.id)
+
+      refute has_element?(view, selector)
+    end
   end
 end

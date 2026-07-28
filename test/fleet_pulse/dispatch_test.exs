@@ -278,4 +278,23 @@ defmodule FleetPulse.DispatchTest do
       refute delivered.id in ids
     end
   end
+
+  describe "order broadcasts" do
+    test "every order change is announced on the fleet orders topic" do
+      :ok = Dispatch.subscribe_orders()
+      driver = online_driver(0.5, 100)
+
+      {:ok, order} = Dispatch.create_order(order_attrs())
+      assert_receive {:order_changed, %Order{status: :pending}}
+
+      {:ok, _} = Dispatch.assign_order(order.id)
+      assert_receive {:order_changed, %Order{status: :assigned}}
+
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+      assert_receive {:order_changed, %Order{status: :picked_up}}
+
+      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id)
+      assert_receive {:order_changed, %Order{status: :delivered}}
+    end
+  end
 end

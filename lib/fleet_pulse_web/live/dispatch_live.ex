@@ -41,7 +41,10 @@ defmodule FleetPulseWeb.DispatchLive do
 
   @impl Phoenix.LiveView
   @spec handle_info(
-          {:driver_updated, DriverState.t()} | {:driver_stopped, Types.id()} | :flush,
+          {:driver_updated, DriverState.t()}
+          | {:driver_stopped, Types.id()}
+          | {:order_changed, Order.t()}
+          | :flush,
           Socket.t()
         ) :: {:noreply, Socket.t()}
   def handle_info({:driver_updated, state}, socket) do
@@ -53,6 +56,10 @@ defmodule FleetPulseWeb.DispatchLive do
      socket
      |> update(:drivers, &Map.delete(&1, driver_id))
      |> update(:pending, &Map.delete(&1, driver_id))}
+  end
+
+  def handle_info({:order_changed, _order}, socket) do
+    {:noreply, assign_orders(socket)}
   end
 
   def handle_info(:flush, socket) do
@@ -325,6 +332,7 @@ defmodule FleetPulseWeb.DispatchLive do
   @spec start(boolean(), Socket.t()) :: Socket.t()
   defp start(true, socket) do
     :ok = Tracking.subscribe_fleet()
+    :ok = Dispatch.subscribe_orders()
     _timer = schedule_flush()
     assign_fleet(socket)
   end

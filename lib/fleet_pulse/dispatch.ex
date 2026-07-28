@@ -40,6 +40,7 @@ defmodule FleetPulse.Dispatch do
     %Order{}
     |> Order.changeset(attrs)
     |> Repo.insert()
+    |> announce_order()
   end
 
   @spec fetch_order(Types.id()) :: {:ok, Order.t()} | {:error, :not_found}
@@ -69,6 +70,9 @@ defmodule FleetPulse.Dispatch do
     |> order_by([o], asc: o.inserted_at)
     |> Repo.all()
   end
+
+  @spec subscribe_orders() :: Events.subscribe_result()
+  def subscribe_orders, do: Events.subscribe_orders()
 
   @doc """
   A driver's in-flight order, if any — assigned or picked up, never terminal.
@@ -185,6 +189,7 @@ defmodule FleetPulse.Dispatch do
         ) :: {:ok, Order.t()} | {:error, Order.changeset()}
   defp broadcast_on_success({:ok, order} = ok, driver_id) do
     :ok = Events.broadcast(driver_id, {:order_assigned, order})
+    :ok = Events.broadcast_order(order)
     ok
   end
 
@@ -241,6 +246,7 @@ defmodule FleetPulse.Dispatch do
   defp after_transition({:ok, order}) do
     :ok = release_if_terminal(order)
     :ok = broadcast_transition(order)
+    :ok = Events.broadcast_order(order)
     {:ok, order}
   end
 
@@ -261,4 +267,13 @@ defmodule FleetPulse.Dispatch do
   end
 
   defp broadcast_transition(%Order{}), do: :ok
+
+  @spec announce_order({:ok, Order.t()} | {:error, Order.changeset()}) ::
+          {:ok, Order.t()} | {:error, Order.changeset()}
+  defp announce_order({:ok, order} = ok) do
+    :ok = Events.broadcast_order(order)
+    ok
+  end
+
+  defp announce_order({:error, _changeset} = error), do: error
 end
