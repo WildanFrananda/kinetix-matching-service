@@ -258,4 +258,24 @@ defmodule FleetPulse.DispatchTest do
       assert Dispatch.active_order_for_driver(driver.id) == nil
     end
   end
+
+  describe "list_active_orders/0" do
+    test "lists non-terminal orders, excluding delivered and cancelled" do
+      driver = online_driver(0.5, 100)
+
+      {:ok, delivered} = Dispatch.assign_order(order!().id)
+      {:ok, _} = Dispatch.mark_picked_up(delivered.id, driver.id)
+      {:ok, _} = Dispatch.mark_delivered(delivered.id, driver.id)
+
+      {:ok, assigned} = Dispatch.assign_order(order!().id)
+
+      {:ok, pending} = Dispatch.create_order(order_attrs())
+
+      ids = Enum.map(Dispatch.list_active_orders(), & &1.id)
+
+      assert assigned.id in ids
+      assert pending.id in ids
+      refute delivered.id in ids
+    end
+  end
 end

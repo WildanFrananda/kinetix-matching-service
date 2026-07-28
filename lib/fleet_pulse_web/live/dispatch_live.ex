@@ -20,6 +20,8 @@ defmodule FleetPulseWeb.DispatchLive do
 
   use FleetPulseWeb, :live_view
 
+  alias FleetPulse.Dispatch
+  alias FleetPulse.Dispatch.Order
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.DriverState
   alias FleetPulse.Types
@@ -39,7 +41,7 @@ defmodule FleetPulseWeb.DispatchLive do
 
   @impl Phoenix.LiveView
   @spec handle_info(
-          {:driver_updated, DriverState.t()} | {:driver_stopper, Types.id()} | :flush,
+          {:driver_updated, DriverState.t()} | {:driver_stopped, Types.id()} | :flush,
           Socket.t()
         ) :: {:noreply, Socket.t()}
   def handle_info({:driver_updated, state}, socket) do
@@ -106,6 +108,50 @@ defmodule FleetPulseWeb.DispatchLive do
       {:error, _reason} ->
         {:noreply, put_flash(socket, :error, "Failed to reject driver.")}
     end
+  end
+
+  def handle_event("create_order", %{"order" => params}, socket) do
+    case Dispatch.create_order(params) do
+      {:ok, _order} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Order created.")
+         |> assign_orders()
+         |> assign_order_form()}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, :order_form, to_form(changeset, as: :order))}
+    end
+  end
+
+  def handle_event("assign_order", %{"id" => id}, socket) when is_binary(id) do
+    order_id = String.to_integer(id)
+
+    flashed =
+      case Dispatch.assign_order(order_id) do
+        {:ok, order} ->
+          put_flash(socket, :info, "Order ##{order.id} → driver ##{order.driver_id}.")
+
+        {:error, :no_driver_available} ->
+          put_flash(socket, :error, "No eligible driver in range.")
+
+        {:error, _reason} ->
+          put_flash(socket, :error, "Could not assign the order.")
+      end
+
+    {:noreply, assign_orders(flashed)}
+  end
+
+  def handle_event("cancel_order", %{"id" => id}, socket) when is_binary(id) do
+    order_id = String.to_integer(id)
+
+    flashed =
+      case Dispatch.cancel_order(order_id) do
+        {:ok, _order} -> put_flash(socket, :info, "Order ##{order_id} cancelled.")
+        {:error, _reason} -> put_flash(socket, :error, "Could not cancel the order.")
+      end
+
+    {:noreply, assign_orders(flashed)}
   end
 
   @impl Phoenix.LiveView
@@ -180,6 +226,58 @@ defmodule FleetPulseWeb.DispatchLive do
         }
       </script>
 
+      <div class="mt-8 rounded-2xl border border-slate-700 p-6">
+        <h3 class="text-lg font-bold mb-4">Orders</h3>
+
+        <.form
+          for={@order_form}
+          id="order-form"
+          phx-submit="create_order"
+          class="grid grid-cols-2 gap-3 sm:grid-cols-6 items-end mb-6"
+        >
+          <.input field={@order_form[:pickup_latitude]} type="number" step="any" label="Pickup lat" />
+          <.input field={@order_form[:pickup_longitude]} type="number" step="any" label="Pickup lng" />
+          <.input field={@order_form[:dropoff_latitude]} type="number" step="any" label="Dropoff lat" />
+          <.input
+            field={@order_form[:dropoff_longitude]}
+            type="number"
+            step="any"
+            label="Dropoff lng"
+          />
+          <.input field={@order_form[:weight_kg]} type="number" label="Weight (kg)" />
+          <.button class="btn btn-primary">Create</.button>
+        </.form>
+
+        <.table id="orders" rows={@orders}>
+          <:col :let={order} label="ID">{order.id}</:col>
+          <:col :let={order} label="Status">{order.status}</:col>
+          <:col :let={order} label="Pickup">
+            {order_point(order.pickup_latitude, order.pickup_longitude)}
+          </:col>
+          <:col :let={order} label="Weight">{order.weight_kg} kg</:col>
+          <:col :let={order} label="Driver">{order.driver_id || "—"}</:col>
+          <:col :let={order} label="Actions">
+            <div class="flex gap-2">
+              <.button
+                :if={order.status == :pending}
+                phx-click="assign_order"
+                phx-value-id={order.id}
+                class="bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-1 rounded"
+              >
+                Assign
+              </.button>
+              <.button
+                phx-click="cancel_order"
+                phx-value-id={order.id}
+                class="bg-rose-600 hover:bg-rose-500 text-white text-xs px-3 py-1 rounded"
+              >
+                Cancel
+              </.button>
+            </div>
+          </:col>
+        </.table>
+      </div>
+
       <.table id="drivers" rows={rows(@drivers)}>
         <:col :let={driver} label="Driver">{driver.driver_id}</:col>
         <:col :let={driver} label="Status">{driver.status}</:col>
@@ -236,12 +334,21 @@ defmodule FleetPulseWeb.DispatchLive do
   @spec assign_fleet(Socket.t()) :: Socket.t()
   defp assign_fleet(socket) do
     drivers = Map.new(Tracking.list_tracked(), &{&1.driver_id, &1})
-    pending_approval = Tracking.list_pending_drivers()
 
     socket
     |> assign(:drivers, drivers)
-    |> assign(:pending_approval, pending_approval)
+    |> assign(:pending_approval, Tracking.list_pending_drivers())
     |> assign(:pending, %{})
+    |> assign_orders()
+    |> assign_order_form()
+  end
+
+  @spec assign_orders(Socket.t()) :: Socket.t()
+  defp assign_orders(socket), do: assign(socket, :orders, Dispatch.list_active_orders())
+
+  @spec assign_order_form(Socket.t()) :: Socket.t()
+  defp assign_order_form(socket) do
+    assign(socket, :order_form, to_form(Order.changeset(%Order{}, %{}), as: :order))
   end
 
   @spec flush(Socket.t()) :: Socket.t()
@@ -283,6 +390,11 @@ defmodule FleetPulseWeb.DispatchLive do
   @spec position(Types.coordinates() | nil) :: String.t()
   defp position(nil), do: "—"
   defp position({lat, lng}), do: "#{Float.round(lat, 5)}, #{Float.round(lng, 5)}"
+
+  @spec order_point(float() | nil, float() | nil) :: String.t()
+  defp order_point(nil, _lng), do: "—"
+  defp order_point(_lat, nil), do: "—"
+  defp order_point(lat, lng), do: "#{Float.round(lat, 4)}, #{Float.round(lng, 4)}"
 
   @spec speed(float() | nil) :: String.t()
   defp speed(nil), do: "—"

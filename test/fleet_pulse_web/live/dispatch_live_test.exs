@@ -90,4 +90,78 @@ defmodule FleetPulseWeb.DispatchLiveTest do
     assert render(view) =~ "0 driver(s) tracked"
     refute render(view) =~ "-6.2"
   end
+
+  describe "order management" do
+    test "creating an order adds it to the board", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/dispatch")
+
+      view
+      |> form("#order-form",
+        order: %{
+          pickup_latitude: "-6.2",
+          pickup_longitude: "106.8",
+          dropoff_latitude: "-6.9",
+          dropoff_longitude: "107.6",
+          weight_kg: "50"
+        }
+      )
+      |> render_submit()
+
+      assert render(view) =~ "pending"
+    end
+
+    test "assigning a pending order dispatches it to a nearby driver", %{conn: conn} do
+      driver = FleetPulse.TrackingFixtures.driver_fixture()
+      {:ok, _} = FleetPulse.Tracking.start_tracking(driver.id)
+      {:ok, _} = FleetPulse.Tracking.set_status(driver.id, :online)
+
+      :ok =
+        FleetPulse.Tracking.track_location(driver.id, %{
+          latitude: -6.2,
+          longitude: 106.8,
+          recorded_at: DateTime.utc_now()
+        })
+
+      {:ok, _} = FleetPulse.Tracking.fetch_state(driver.id)
+      on_exit(fn -> FleetPulse.Tracking.stop_tracking(driver.id) end)
+
+      {:ok, order} =
+        FleetPulse.Dispatch.create_order(%{
+          pickup_latitude: -6.2,
+          pickup_longitude: 106.8,
+          dropoff_latitude: -6.9,
+          dropoff_longitude: 107.6,
+          weight_kg: 50
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/dispatch")
+
+      view
+      |> element("button[phx-value-id='#{order.id}'][phx-click='assign_order']")
+      |> render_click()
+
+      assert render(view) =~ "assigned"
+      assert {:ok, %{status: :busy}} = FleetPulse.Tracking.fetch_state(driver.id)
+    end
+
+    test "cancelling an order removes it from the board", %{conn: conn} do
+      {:ok, order} =
+        FleetPulse.Dispatch.create_order(%{
+          pickup_latitude: -6.2,
+          pickup_longitude: 106.8,
+          dropoff_latitude: -6.9,
+          dropoff_longitude: 107.6,
+          weight_kg: 50
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/dispatch")
+
+      selector = "button[phx-value-id='#{order.id}'][phx-click='cancel_order']"
+      assert has_element?(view, selector)
+
+      view |> element(selector) |> render_click()
+
+      refute has_element?(view, selector)
+    end
+  end
 end

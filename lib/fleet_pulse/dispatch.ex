@@ -59,6 +59,18 @@ defmodule FleetPulse.Dispatch do
   end
 
   @doc """
+  Every order still in play — pending, assigned, or picked up. What the
+  dispatcher's board shows; terminal orders drop off.
+  """
+  @spec list_active_orders() :: [Order.t()]
+  def list_active_orders do
+    Order
+    |> where([o], o.status in [:pending, :assigned, :picked_up])
+    |> order_by([o], asc: o.inserted_at)
+    |> Repo.all()
+  end
+
+  @doc """
   A driver's in-flight order, if any — assigned or picked up, never terminal.
 
   Used when a driver (re)connects so the app can restore its current job
