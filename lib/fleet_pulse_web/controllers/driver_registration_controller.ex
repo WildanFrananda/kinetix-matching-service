@@ -22,7 +22,7 @@ defmodule FleetPulseWeb.DriverRegistrationController do
         errors = Ecto.Changeset.traverse_errors(changeset, fn {msg, _opts} -> msg end)
 
         conn
-        |> put_status(:unprecessable_entity)
+        |> put_status(:unprocessable_entity)
         |> json(%{errors: errors})
     end
   end

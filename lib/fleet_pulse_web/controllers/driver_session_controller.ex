@@ -25,6 +25,11 @@ defmodule FleetPulseWeb.DriverSessionController do
           expires_in: DriverToken.max_age_seconds()
         })
 
+      {:error, :pending_approval} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{error: "pending_approval"})
+
       {:error, :invalid_credentials} ->
         conn
         |> put_status(:unauthorized)

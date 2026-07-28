@@ -157,7 +157,7 @@ defmodule FleetPulse.Tracking do
   attacker cannot enumerate valid phone numbers by response time.
   """
   @spec authenticate_driver(String.t(), String.t()) ::
-          {:ok, Driver.t()} | {:error, :invalid_credentials}
+          {:ok, Driver.t()} | {:error, :invalid_credentials | :pending_approval}
   def authenticate_driver(phone, password) when is_binary(phone) and is_binary(password) do
     Driver
     |> Repo.get_by(phone: phone)
@@ -222,21 +222,19 @@ defmodule FleetPulse.Tracking do
   @spec verify_driver(Driver.t() | nil, String.t()) ::
           {:ok, Driver.t()} | {:error, :invalid_credentials | :pending_approval}
   defp verify_driver(%Driver{} = driver, password) do
-    if Driver.valid_password?(driver, password) do
-      if driver.active do
-        {:ok, driver}
-      else
-        {:error, :pending_approval}
-      end
-    else
-      {:error, :invalid_credentials}
-    end
+    authorise_driver(Driver.valid_password?(driver, password), driver)
   end
 
   defp verify_driver(nil, _password) do
     Bcrypt.no_user_verify()
     {:error, :invalid_credentials}
   end
+
+  @spec authorise_driver(boolean(), Driver.t()) ::
+          {:ok, Driver.t()} | {:error, :invalid_credentials | :pending_approval}
+  defp authorise_driver(false, _driver), do: {:error, :invalid_credentials}
+  defp authorise_driver(true, %Driver{active: true} = driver), do: {:ok, driver}
+  defp authorise_driver(true, %Driver{}), do: {:error, :pending_approval}
 
   @spec persist_status(Driver.t(), Driver.status()) ::
           {:ok, Driver.t()} | {:error, Driver.changeset()}
