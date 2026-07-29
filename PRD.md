@@ -99,4 +99,69 @@ This system will strictly adhere to Phoenix Contexts, separating domain logic fr
 
 - Complex Turn-by-Turn Navigation (integrate with Mapbox SDK on client instead).
 - Billing and Payment Processing.
+
+---
+
+## 9. Phase 2 Roadmap (Post-V1)
+
+V1 delivers the core loop — telemetry ingestion, in-memory fleet state,
+proximity dispatch with atomic claim, the real-time LiveView dashboard, the
+driver channel, and driver auth/registration. Phase 2 closes remaining
+behavioural gaps and hardens the system for production. Items are prioritised;
+`P0` is executed first.
+
+### 9.1. Automatic Re-Dispatch of Pending Orders — **P0 (next)**
+
+**Problem.** An order created when no eligible driver is in range returns
+`no_driver_available` and then sits `pending` **forever** — nothing ever
+re-attempts it. This is a real behavioural gap, not polish: the "intelligent
+dispatch" of 5.5 is incomplete without it.
+
+**Solution.** A supervised process subscribes to fleet driver-state changes on
+the `tracking:fleet` PubSub topic. When a driver becomes available (goes
+`online`, or is freed after a delivery), it re-attempts the oldest pending
+orders whose pickup is within range of that driver, using the existing
+`Dispatch.assign_order/2`. No polling — it reacts to the same broadcasts the
+dashboard already consumes.
+
+**Behaviour.** Order in → no driver nearby → stays `pending` → a courier comes
+online within range → the order is **auto-assigned and pushed to their device**.
+
+**Notes.** Reuses `Dispatch.assign_order/2` (atomic claim already prevents
+double-assignment) and the `dispatch:orders` broadcast (the dashboard updates
+live). Must avoid a thundering-herd re-attempt when many drivers connect at
+once; bound the work per event.
+
+### 9.2. Business Observability (Telemetry & Metrics) — P1
+
+**Problem.** The system exposes VM/Phoenix/DB metrics but **zero business
+metrics**: orders per minute, average time-to-assign, active drivers,
+`no_driver_available` rate, delivery success. You cannot operate what you
+cannot see.
+
+**Solution.** Emit `:telemetry` events at domain checkpoints (order created,
+assigned, picked up, delivered, cancelled, dispatch failed) and surface them as
+metrics in the existing `FleetPulseWeb.Telemetry` / LiveDashboard.
+
+### 9.3. Rate Limiting on Public Auth Endpoints — P1
+
+**Problem.** `POST /driver/register` and `POST /driver/session` are public and
+unthrottled — open to registration spam and credential stuffing.
+
+**Solution.** Per-IP and per-phone rate limiting (fixed window or token bucket)
+on both endpoints, returning `429 Too Many Requests` when exceeded.
+
+### 9.4. Location History Retention — P2
+
+**Problem.** `location_pings` is append-only and grows without bound
+(~3 GB/day at the PRD's target scale).
+
+**Solution.** A periodic job that prunes pings older than a configurable
+retention window (e.g. 30 days), keeping the audit trail bounded.
+
+### Explicitly deferred (no concrete demand yet)
+
+- PostGIS polygon service zones (radius + haversine over ETS suffices today).
+- Multi-order queue per driver (one active order per driver is enough for V1).
+- ETA display and map-marker click-to-assign (UI polish, not new capability).
 - Customer-facing mobile applications (focus is on Driver App and Admin Dashboard).

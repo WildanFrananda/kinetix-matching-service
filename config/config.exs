@@ -32,6 +32,10 @@ config :fleet_pulse, FleetPulse.Tracking.IdleReaper,
   interval_ms: 60_000,
   idle_after_ms: 900_000
 
+config :fleet_pulse, FleetPulse.Dispatch.ReDispatcher,
+  enabled: true,
+  debounce_ms: 1_000
+
 config :fleet_pulse, FleetPulseWeb.DispatchLive, flush_interval_ms: 500
 
 # Configure LiveView
