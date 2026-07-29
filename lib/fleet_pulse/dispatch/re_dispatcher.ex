@@ -35,13 +35,14 @@ defmodule FleetPulse.Dispatch.ReDispatcher do
   def sweep_now, do: GenServer.call(__MODULE__, :sweep_now, :infinity)
 
   @impl GenServer
-  @spec init(keyword()) :: {:ok, t()}
-  def init(_opts) do
+  @spec init(keyword()) :: {:ok, %__MODULE__{debounce_ms: pos_integer(), scheduled: false}}
+  def init(opts) do
     :ok = Tracking.subscribe_fleet()
     :ok = Dispatch.subscribe_orders()
 
     config = Application.get_env(:fleet_pulse, __MODULE__, [])
-    {:ok, %__MODULE__{debounce_ms: debounce_ms(Keyword.get(config, :debounce_ms))}}
+    ms = Keyword.get(opts, :debounce_ms) || Keyword.get(config, :debounce_ms)
+    {:ok, %__MODULE__{debounce_ms: debounce_ms(ms)}}
   end
 
   @impl GenServer

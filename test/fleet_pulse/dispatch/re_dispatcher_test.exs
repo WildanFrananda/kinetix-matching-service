@@ -51,6 +51,14 @@ defmodule FleetPulse.Dispatch.ReDispatcherTest do
     driver
   end
 
+  defp eventually(fun, retries \\ 50) do
+    cond do
+      fun.() -> true
+      retries == 0 -> false
+      true -> Process.sleep(20) && eventually(fun, retries - 1)
+    end
+  end
+
   test "assigns a stranded pending order once a driver becomes available" do
     order = order_at_pickup()
     assert {:ok, %{status: :pending}} = Dispatch.fetch_order(order.id)
@@ -72,5 +80,20 @@ defmodule FleetPulse.Dispatch.ReDispatcherTest do
 
     assert {:ok, 0} = ReDispatcher.sweep_now()
     assert {:ok, %{status: :pending}} = Dispatch.fetch_order(order.id)
+  end
+
+  test "auto-assigns a stranded order when a driver comes online, with no manual sweep" do
+    :ok = stop_supervised(ReDispatcher)
+    start_supervised!({ReDispatcher, debounce_ms: 20})
+
+    order = order_at_pickup()
+    assert {:ok, %{status: :pending}} = Dispatch.fetch_order(order.id)
+
+    _driver = online_driver_at_pickup()
+
+    assert eventually(fn ->
+             match?({:ok, %{status: :assigned}}, Dispatch.fetch_order(order.id))
+           end),
+           "expected the stranded order to be auto-assigned within the debounce window"
   end
 end
