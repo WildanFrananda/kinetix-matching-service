@@ -27,6 +27,8 @@ config :fleet_pulse, FleetPulse.Tracking.PersistenceBatcher, enabled: false
 
 config :fleet_pulse, FleetPulse.Tracking.IdleReaper, enabled: false
 
+config :fleet_pulse, FleetPulse.Tracking.PingRetention, enabled: false
+
 config :fleet_pulse, FleetPulseWeb.DispatchLive, flush_interval_ms: 60_000
 
 config :fleet_pulse, FleetPulse.Dispatch.ReDispatcher, enabled: false, debounce_ms: 60_000

@@ -36,6 +36,11 @@ config :fleet_pulse, FleetPulse.Dispatch.ReDispatcher,
   enabled: true,
   debounce_ms: 1_000
 
+config :fleet_pulse, FleetPulse.Tracking.PingRetention,
+  enabled: true,
+  interval_ms: :timer.hours(24),
+  retention_ms: :timer.hours(24 * 30)
+
 config :fleet_pulse, FleetPulseWeb.Plugs.RateLimit,
   enabled: true,
   scale_ms: 60_000,
