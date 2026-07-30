@@ -100,11 +100,15 @@ defmodule FleetPulse.Dispatch do
   @spec assign_order(Types.id(), float()) ::
           {:ok, Order.t()} | {:error, assign_error() | Order.changeset()}
   def assign_order(order_id, radius_km \\ 3.0) do
-    with {:ok, order} <- fetch_order(order_id),
-         :ok <- ensure_pending(order),
-         {:ok, driver_state} <- claim_nearest(order, radius_km) do
-      persist_assignment(order, driver_state)
-    end
+    result =
+      with {:ok, order} <- fetch_order(order_id),
+           :ok <- ensure_pending(order),
+           {:ok, driver_state} <- claim_nearest(order, radius_km) do
+        persist_assignment(order, driver_state)
+      end
+
+    :ok = emit_assign_telemetry(result)
+    result
   end
 
   @doc """
@@ -247,6 +251,7 @@ defmodule FleetPulse.Dispatch do
     :ok = release_if_terminal(order)
     :ok = broadcast_transition(order)
     :ok = Events.broadcast_order(order)
+    :ok = emit_transition_telemetry(order)
     {:ok, order}
   end
 
@@ -272,8 +277,48 @@ defmodule FleetPulse.Dispatch do
           {:ok, Order.t()} | {:error, Order.changeset()}
   defp announce_order({:ok, order} = ok) do
     :ok = Events.broadcast_order(order)
+
+    :telemetry.execute(
+      [:fleet_pulse, :dispatch, :order_created],
+      %{count: 1, weight_kg: order.weight_kg},
+      %{order_id: order.id}
+    )
+
     ok
   end
 
   defp announce_order({:error, _changeset} = error), do: error
+
+  @spec emit_assign_telemetry({:ok, Order.t()} | {:error, assign_error() | Order.changeset()}) ::
+          :ok
+  defp emit_assign_telemetry({:ok, order}) do
+    ms = DateTime.diff(order.assigned_at, order.inserted_at, :millisecond)
+
+    :telemetry.execute(
+      [:fleet_pulse, :dispatch, :order_assigned],
+      %{count: 1, time_to_assign_ms: ms},
+      %{order_id: order.id, driver_id: order.driver_id}
+    )
+  end
+
+  defp emit_assign_telemetry({:error, :no_driver_available}) do
+    :telemetry.execute([:fleet_pulse, :dispatch, :dispatch_failed], %{count: 1}, %{})
+  end
+
+  defp emit_assign_telemetry(_other), do: :ok
+
+  @spec emit_transition_telemetry(Order.t()) :: :ok
+  defp emit_transition_telemetry(%Order{status: :delivered} = order) do
+    :telemetry.execute([:fleet_pulse, :dispatch, :order_delivered], %{count: 1}, %{
+      order_id: order.id
+    })
+  end
+
+  defp emit_transition_telemetry(%Order{status: :cancelled} = order) do
+    :telemetry.execute([:fleet_pulse, :dispatch, :order_cancelled], %{count: 1}, %{
+      order_id: order.id
+    })
+  end
+
+  defp emit_transition_telemetry(%Order{}), do: :ok
 end
