@@ -12,7 +12,8 @@ defmodule FleetPulse.Application do
         FleetPulse.Repo,
         {DNSCluster, query: Application.get_env(:fleet_pulse, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: FleetPulse.PubSub},
-        FleetPulse.Tracking.Supervisor
+        FleetPulse.Tracking.Supervisor,
+        {FleetPulse.RateLimit, clean_period: :timer.minutes(10)}
       ] ++ redispatcher() ++ [FleetPulseWeb.Endpoint]
 
     opts = [strategy: :one_for_one, name: FleetPulse.Supervisor]

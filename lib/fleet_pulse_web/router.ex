@@ -36,10 +36,21 @@ defmodule FleetPulseWeb.Router do
   end
 
   scope "/", FleetPulseWeb do
-    pipe_through :api
-
+    pipe_through [:api, :throttle_login]
     post "/driver/session", DriverSessionController, :create
+  end
+
+  scope "/", FleetPulseWeb do
+    pipe_through [:api, :throttle_register]
     post "/driver/register", DriverRegistrationController, :create
+  end
+
+  pipeline :throttle_login do
+    plug FleetPulseWeb.Plugs.RateLimit, bucket: :login
+  end
+
+  pipeline :throttle_register do
+    plug FleetPulseWeb.Plugs.RateLimit, bucket: :register
   end
 
   # Other scopes may use custom stacks.

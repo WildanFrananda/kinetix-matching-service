@@ -36,6 +36,12 @@ config :fleet_pulse, FleetPulse.Dispatch.ReDispatcher,
   enabled: true,
   debounce_ms: 1_000
 
+config :fleet_pulse, FleetPulseWeb.Plugs.RateLimit,
+  enabled: true,
+  scale_ms: 60_000,
+  login: 5,
+  register: 3
+
 config :fleet_pulse, FleetPulseWeb.DispatchLive, flush_interval_ms: 500
 
 # Configure LiveView

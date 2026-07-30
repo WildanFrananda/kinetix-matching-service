@@ -31,6 +31,8 @@ config :fleet_pulse, FleetPulseWeb.DispatchLive, flush_interval_ms: 60_000
 
 config :fleet_pulse, FleetPulse.Dispatch.ReDispatcher, enabled: false, debounce_ms: 60_000
 
+config :fleet_pulse, FleetPulseWeb.Plugs.RateLimit, enabled: false
+
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false
 
