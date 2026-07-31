@@ -143,6 +143,25 @@ defmodule FleetPulse.Dispatch do
   end
 
   @doc """
+  Assigns a pending order to a SPECIFIC driver (a dispatcher override), rather
+  than the nearest. Claims that driver atomically, so it still cannot be
+  double-assigned.
+  """
+  @spec assign_order_to_driver(Types.id(), Types.id()) ::
+          {:ok, Order.t()} | {:error, assign_error() | :unavailable | Order.changeset()}
+  def assign_order_to_driver(order_id, driver_id) do
+    result =
+      with {:ok, order} <- fetch_order(order_id),
+           :ok <- ensure_pending(order),
+           {:ok, driver_state} <- DriverState.claim(driver_id) do
+        persist_assignment(order, driver_state)
+      end
+
+    :ok = emit_assign_telemetry(result)
+    result
+  end
+
+  @doc """
   A driver marks its assigned order as picked up.
 
   Refused unless the order is currently `:assigned` AND belongs to this driver.
@@ -320,7 +339,10 @@ defmodule FleetPulse.Dispatch do
 
   defp announce_order({:error, _changeset} = error), do: error
 
-  @spec emit_assign_telemetry({:ok, Order.t()} | {:error, assign_error() | Order.changeset()}) ::
+  @spec emit_assign_telemetry(
+          {:ok, Order.t()}
+          | {:error, assign_error() | :unavailable | Order.changeset()}
+        ) ::
           :ok
   defp emit_assign_telemetry({:ok, order}) do
     ms = DateTime.diff(order.assigned_at, order.inserted_at, :millisecond)

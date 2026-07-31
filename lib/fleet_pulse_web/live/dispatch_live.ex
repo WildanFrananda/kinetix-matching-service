@@ -168,6 +168,32 @@ defmodule FleetPulseWeb.DispatchLive do
      |> assign_history()}
   end
 
+  def handle_event("select_driver", %{"id" => id}, socket) when is_binary(id) do
+    {:noreply, select_driver(socket, String.to_integer(id))}
+  end
+
+  def handle_event("close_driver", _params, socket) do
+    {:noreply, assign(socket, :selected, nil)}
+  end
+
+  def handle_event(
+        "assign_to_driver",
+        %{"driver_id" => driver_id, "order_id" => order_id},
+        socket
+      )
+      when is_binary(driver_id) and is_binary(order_id) do
+    did = String.to_integer(driver_id)
+
+    flashed =
+      case Dispatch.assign_order_to_driver(String.to_integer(order_id), did) do
+        {:ok, order} -> put_flash(socket, :info, "Order ##{order.id} → driver ##{did}.")
+        {:error, :unavailable} -> put_flash(socket, :error, "Driver is not available.")
+        {:error, _reason} -> put_flash(socket, :error, "Could not assign the order.")
+      end
+
+    {:noreply, flashed |> assign_orders() |> assign_history() |> select_driver(did)}
+  end
+
   @impl Phoenix.LiveView
   @spec render(map()) :: Rendered.t()
   def render(assigns) do
@@ -309,7 +335,67 @@ defmodule FleetPulseWeb.DispatchLive do
         <:col :let={driver} label="Position">{position(driver.coordinates)}</:col>
         <:col :let={driver} label="Speed">{speed(driver.speed_kmh)}</:col>
         <:col :let={driver} label="Last seen">{seen(driver.synced_at)}</:col>
+        <:col :let={driver} label="">
+          <.button
+            phx-click="select_driver"
+            phx-value-id={driver.driver_id}
+            class="btn btn-ghost btn-xs"
+          >
+            Details
+          </.button>
+        </:col>
       </.table>
+
+      <div :if={@selected} class="mt-8 rounded-2xl border border-primary/40 bg-primary/5 p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-bold">
+            Driver #{@selected.record.id} — {@selected.record.name}
+          </h3>
+          <.button phx-click="close_driver" class="btn btn-ghost btn-sm">Close</.button>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 sm:grid-cols-4 mb-6">
+          <div>
+            <div class="text-xs text-base-content/60">Plate</div>
+            <div class="font-medium">{@selected.record.vehicle_plate}</div>
+          </div>
+          <div>
+            <div class="text-xs text-base-content/60">Capacity</div>
+            <div class="font-medium">{@selected.record.capacity_kg} kg</div>
+          </div>
+          <div>
+            <div class="text-xs text-base-content/60">Status</div>
+            <.status_badge status={@selected.record.status} />
+          </div>
+          <div>
+            <div class="text-xs text-base-content/60">Position</div>
+            <div class="font-medium">{driver_position(@selected.state)}</div>
+          </div>
+        </div>
+
+        <div :if={@selected.order} class="rounded-xl border border-base-300 p-4">
+          <div class="text-sm font-semibold mb-1">Current order ##{@selected.order.id}</div>
+          <.status_badge status={@selected.order.status} />
+          <span class="ml-2 text-sm text-base-content/70">{@selected.order.weight_kg} kg</span>
+        </div>
+
+        <form
+          :if={is_nil(@selected.order) and @selected.record.status == :online}
+          phx-submit="assign_to_driver"
+          class="flex items-end gap-3"
+        >
+          <input type="hidden" name="driver_id" value={@selected.record.id} />
+          <div>
+            <label class="text-xs text-base-content/60">Assign a pending order</label>
+            <select name="order_id" class="select select-sm select-bordered block">
+              <option :for={o <- pending_orders(@orders)} value={o.id}>
+                Order #{o.id} — {o.weight_kg} kg
+              </option>
+            </select>
+          </div>
+          <.button class="btn btn-primary btn-sm">Assign</.button>
+        </form>
+      </div>
 
       <div class="mt-8 rounded-2xl border border-base-300 p-6">
         <div class="flex items-center justify-between mb-4">
@@ -396,6 +482,7 @@ defmodule FleetPulseWeb.DispatchLive do
     |> assign_stats()
     |> assign(:history_status, :all)
     |> assign_history()
+    |> assign(:selected, nil)
   end
 
   @spec assign_orders(Socket.t()) :: Socket.t()
@@ -432,6 +519,36 @@ defmodule FleetPulseWeb.DispatchLive do
     |> Keyword.get(:flush_interval_ms)
     |> interval_or_default()
   end
+
+  @spec select_driver(Socket.t(), Types.id()) :: Socket.t()
+  defp select_driver(socket, driver_id) do
+    case Tracking.fetch_driver(driver_id) do
+      {:ok, record} ->
+        assign(socket, :selected, %{
+          record: record,
+          state: driver_state(driver_id),
+          order: Dispatch.active_order_for_driver(driver_id)
+        })
+
+      {:error, :not_found} ->
+        put_flash(socket, :error, "Driver not found.")
+    end
+  end
+
+  @spec driver_state(Types.id()) :: DriverState.t() | nil
+  defp driver_state(driver_id) do
+    case Tracking.fetch_state(driver_id) do
+      {:ok, state} -> state
+      {:error, :not_found} -> nil
+    end
+  end
+
+  @spec driver_position(DriverState.t() | nil) :: String.t()
+  defp driver_position(nil), do: "—"
+  defp driver_position(%DriverState{coordinates: coords}), do: position(coords)
+
+  @spec pending_orders([Order.t()]) :: [Order.t()]
+  defp pending_orders(orders), do: Enum.filter(orders, &(&1.status == :pending))
 
   @spec assign_stats(Socket.t()) :: Socket.t()
   defp assign_stats(socket) do

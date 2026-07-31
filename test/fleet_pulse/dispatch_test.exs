@@ -326,4 +326,24 @@ defmodule FleetPulse.DispatchTest do
       assert delivered.id in all_ids
     end
   end
+
+  describe "assign_order_to_driver/2" do
+    test "assigns the chosen online driver" do
+      driver = online_driver(0.5, 100)
+      {:ok, order} = Dispatch.create_order(order_attrs())
+
+      assert {:ok, assigned} = Dispatch.assign_order_to_driver(order.id, driver.id)
+      assert assigned.driver_id == driver.id
+      assert {:ok, %{status: :busy}} = Tracking.fetch_state(driver.id)
+    end
+
+    test "refuses a driver that is already busy" do
+      driver = online_driver(0.5, 100)
+      {:ok, first} = Dispatch.create_order(order_attrs())
+      {:ok, _} = Dispatch.assign_order_to_driver(first.id, driver.id)
+
+      {:ok, second} = Dispatch.create_order(order_attrs())
+      assert {:error, :unavailable} = Dispatch.assign_order_to_driver(second.id, driver.id)
+    end
+  end
 end

@@ -228,4 +228,21 @@ defmodule FleetPulseWeb.DispatchLiveTest do
 
     assert has_element?(view, "#history td", to_string(order.id))
   end
+
+  test "selecting a driver opens its detail panel", %{conn: conn} do
+    driver = FleetPulse.TrackingFixtures.driver_fixture(%{name: "Selectable Driver"})
+    {:ok, _} = FleetPulse.Tracking.start_tracking(driver.id)
+    {:ok, _} = FleetPulse.Tracking.set_status(driver.id, :online)
+    {:ok, _} = FleetPulse.Tracking.fetch_state(driver.id)
+    on_exit(fn -> FleetPulse.Tracking.stop_tracking(driver.id) end)
+
+    {:ok, view, _html} = live(conn, ~p"/dispatch")
+
+    view
+    |> element("button[phx-click='select_driver'][phx-value-id='#{driver.id}']")
+    |> render_click()
+
+    assert has_element?(view, "button[phx-click='close_driver']")
+    assert render(view) =~ "Selectable Driver"
+  end
 end
