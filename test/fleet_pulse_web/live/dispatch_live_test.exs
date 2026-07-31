@@ -87,7 +87,7 @@ defmodule FleetPulseWeb.DispatchLiveTest do
 
     :ok = Tracking.stop_tracking(driver.id)
 
-    assert render(view) =~ "0 driver(s) tracked"
+    assert render(view) =~ "0 tracked"
     refute render(view) =~ "-6.2"
   end
 

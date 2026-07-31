@@ -198,237 +198,246 @@ defmodule FleetPulseWeb.DispatchLive do
   @spec render(map()) :: Rendered.t()
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash}>
-      <.header>
-        Dispatch Center
-        <:subtitle>{map_size(@drivers)} driver(s) tracked</:subtitle>
-      </.header>
+    <div class="min-h-screen bg-base-200 text-base-content">
+      <header class="navbar bg-base-100 border-b border-base-300 px-6">
+        <div class="flex-1 flex items-center gap-2 text-lg font-bold">
+          🛰️ <span>FleetPulse Dispatch</span>
+        </div>
+        <div class="flex items-center gap-4 text-sm">
+          <span class="hidden sm:inline text-base-content/60">{@current_admin.email}</span>
+          <.link href={~p"/admin/log_out"} method="delete" class="btn btn-ghost btn-sm">
+            Log out
+          </.link>
+        </div>
+      </header>
 
-      <div class="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <.stat_tile
-          label="Drivers online"
-          value={online_count(@drivers)}
-          hint={"#{map_size(@drivers)} tracked"}
-        />
-        <.stat_tile label="Active orders" value={length(@orders)} />
-        <.stat_tile label="Waiting" value={pending_count(@orders)} hint="unassigned" />
-        <.stat_tile label="Delivered today" value={@delivered_today} />
-      </div>
+      <Layouts.flash_group flash={@flash} />
 
-      <div class="my-6">
+      <main class="mx-auto max-w-7xl px-6 py-8 space-y-8">
+        <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <.stat_tile
+            label="Drivers online"
+            value={online_count(@drivers)}
+            hint={"#{map_size(@drivers)} tracked"}
+          />
+          <.stat_tile label="Active orders" value={length(@orders)} />
+          <.stat_tile label="Waiting" value={pending_count(@orders)} hint="unassigned" />
+          <.stat_tile label="Delivered today" value={@delivered_today} />
+        </div>
+
         <div
           id="fleet-map-container"
           phx-hook=".FleetMap"
           phx-update="ignore"
-          class="h-[520px] w-full rounded-2xl border border-slate-700 shadow-2xl overflow-hidden"
+          class="h-[520px] w-full rounded-2xl border border-base-300 shadow-xl overflow-hidden"
         >
         </div>
-      </div>
 
-      <script :type={Phoenix.LiveView.ColocatedHook} name=".FleetMap">
-        import L from "leaflet"
+        <script :type={Phoenix.LiveView.ColocatedHook} name=".FleetMap">
+          import L from "leaflet"
 
-        export default {
-          mounted() {
-            this.map = L.map(this.el).setView([-6.2088, 106.8456], 12)
-            this.markers = {}
+          export default {
+            mounted() {
+              this.map = L.map(this.el).setView([-6.2088, 106.8456], 12)
+              this.markers = {}
 
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-              attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-              subdomains: 'abcd',
-              maxZoom: 19
-            }).addTo(this.map)
+              L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                subdomains: 'abcd',
+                maxZoom: 19
+              }).addTo(this.map)
 
-            this.handleEvent("fleet_updated", ({ drivers }) => {
-              const bounds = []
+              this.handleEvent("fleet_updated", ({ drivers }) => {
+                const bounds = []
 
-              drivers.forEach(driver => {
-                const latLng = [driver.lat, driver.lng]
-                bounds.push(latLng)
+                drivers.forEach(driver => {
+                  const latLng = [driver.lat, driver.lng]
+                  bounds.push(latLng)
 
-                if (this.markers[driver.id]) {
-                  this.markers[driver.id].setLatLng(latLng)
-                  this.markers[driver.id].getPopup().setContent(this.popupContent(driver))
-                } else {
-                  const marker = L.circleMarker(latLng)
-                    .addTo(this.map)
-                    .bindPopup(this.popupContent(driver))
-                  this.markers[driver.id] = marker
+                  if (this.markers[driver.id]) {
+                    this.markers[driver.id].setLatLng(latLng)
+                    this.markers[driver.id].getPopup().setContent(this.popupContent(driver))
+                  } else {
+                    const marker = L.circleMarker(latLng)
+                      .addTo(this.map)
+                      .bindPopup(this.popupContent(driver))
+                    this.markers[driver.id] = marker
+                  }
+                })
+
+                if (bounds.length > 0 && !this.userHasZoomed) {
+                  this.map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 })
+                  this.userHasZoomed = true
                 }
               })
+            },
 
-              if (bounds.length > 0 && !this.userHasZoomed) {
-                this.map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 })
-                this.userHasZoomed = true
-              }
-            })
-          },
-
-          popupContent(driver) {
-            const speed = driver.speed ? Math.round(driver.speed * 10) / 10 : 0;
-            return `
-              <div class="p-1 text-slate-900 font-sans">
-                <div class="font-bold text-sm">🚚 Driver #${driver.id}</div>
-                <div class="text-xs text-slate-600 mt-1">Status: <span class="font-semibold uppercase text-blue-600">${driver.status}</span></div>
-                <div class="text-xs text-slate-600">Speed: <span class="font-semibold">${speed} km/h</span></div>
-              </div>
-            `
+            popupContent(driver) {
+              const speed = driver.speed ? Math.round(driver.speed * 10) / 10 : 0;
+              return `
+                <div class="p-1 text-slate-900 font-sans">
+                  <div class="font-bold text-sm">🚚 Driver #${driver.id}</div>
+                  <div class="text-xs text-slate-600 mt-1">Status: <span class="font-semibold uppercase text-blue-600">${driver.status}</span></div>
+                  <div class="text-xs text-slate-600">Speed: <span class="font-semibold">${speed} km/h</span></div>
+                </div>
+              `
+            }
           }
-        }
-      </script>
+        </script>
 
-      <div class="mt-8 rounded-2xl border border-slate-700 p-6">
-        <h3 class="text-lg font-bold mb-4">Orders</h3>
-
-        <.form
-          for={@order_form}
-          id="order-form"
-          phx-submit="create_order"
-          class="grid grid-cols-2 gap-3 sm:grid-cols-6 items-end mb-6"
-        >
-          <.input field={@order_form[:pickup_latitude]} type="number" step="any" label="Pickup lat" />
-          <.input field={@order_form[:pickup_longitude]} type="number" step="any" label="Pickup lng" />
-          <.input field={@order_form[:dropoff_latitude]} type="number" step="any" label="Dropoff lat" />
-          <.input
-            field={@order_form[:dropoff_longitude]}
-            type="number"
-            step="any"
-            label="Dropoff lng"
-          />
-          <.input field={@order_form[:weight_kg]} type="number" label="Weight (kg)" />
-          <.button class="btn btn-primary">Create</.button>
-        </.form>
-
-        <.table id="orders" rows={@orders}>
-          <:col :let={order} label="ID">{order.id}</:col>
-          <:col :let={order} label="Status"><.status_badge status={order.status} /></:col>
-          <:col :let={order} label="Pickup">
-            {order_point(order.pickup_latitude, order.pickup_longitude)}
-          </:col>
-          <:col :let={order} label="Weight">{order.weight_kg} kg</:col>
-          <:col :let={order} label="Driver">{order.driver_id || "—"}</:col>
-          <:col :let={order} label="Actions">
-            <div class="flex gap-2">
-              <.button
-                :if={order.status == :pending}
-                phx-click="assign_order"
-                phx-value-id={order.id}
-                class="bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-1 rounded"
-              >
-                Assign
-              </.button>
-              <.button
-                phx-click="cancel_order"
-                phx-value-id={order.id}
-                class="bg-rose-600 hover:bg-rose-500 text-white text-xs px-3 py-1 rounded"
-              >
-                Cancel
-              </.button>
-            </div>
-          </:col>
-        </.table>
-      </div>
-
-      <.table id="drivers" rows={rows(@drivers)}>
-        <:col :let={driver} label="Driver">{driver.driver_id}</:col>
-        <:col :let={driver} label="Status"><.status_badge status={driver.status} /></:col>
-        <:col :let={driver} label="Position">{position(driver.coordinates)}</:col>
-        <:col :let={driver} label="Speed">{speed(driver.speed_kmh)}</:col>
-        <:col :let={driver} label="Last seen">{seen(driver.synced_at)}</:col>
-        <:col :let={driver} label="">
-          <.button
-            phx-click="select_driver"
-            phx-value-id={driver.driver_id}
-            class="btn btn-ghost btn-xs"
+        <.panel title="Orders">
+          <.form
+            for={@order_form}
+            id="order-form"
+            phx-submit="create_order"
+            class="grid grid-cols-2 gap-3 sm:grid-cols-6 items-end mb-6"
           >
-            Details
-          </.button>
-        </:col>
-      </.table>
+            <.input field={@order_form[:pickup_latitude]} type="number" step="any" label="Pickup lat" />
+            <.input
+              field={@order_form[:pickup_longitude]}
+              type="number"
+              step="any"
+              label="Pickup lng"
+            />
+            <.input
+              field={@order_form[:dropoff_latitude]}
+              type="number"
+              step="any"
+              label="Dropoff lat"
+            />
+            <.input
+              field={@order_form[:dropoff_longitude]}
+              type="number"
+              step="any"
+              label="Dropoff lng"
+            />
+            <.input field={@order_form[:weight_kg]} type="number" label="Weight (kg)" />
+            <.button class="btn btn-primary">Create</.button>
+          </.form>
 
-      <div :if={@selected} class="mt-8 rounded-2xl border border-primary/40 bg-primary/5 p-6">
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="text-lg font-bold">
-            Driver #{@selected.record.id} — {@selected.record.name}
-          </h3>
-          <.button phx-click="close_driver" class="btn btn-ghost btn-sm">Close</.button>
-        </div>
+          <.table id="orders" rows={@orders}>
+            <:col :let={order} label="ID">{order.id}</:col>
+            <:col :let={order} label="Status"><.status_badge status={order.status} /></:col>
+            <:col :let={order} label="Pickup">
+              {order_point(order.pickup_latitude, order.pickup_longitude)}
+            </:col>
+            <:col :let={order} label="Weight">{order.weight_kg} kg</:col>
+            <:col :let={order} label="Driver">{order.driver_id || "—"}</:col>
+            <:col :let={order} label="Actions">
+              <div class="flex gap-2">
+                <.button
+                  :if={order.status == :pending}
+                  phx-click="assign_order"
+                  phx-value-id={order.id}
+                  class="btn btn-primary btn-xs"
+                >
+                  Assign
+                </.button>
+                <.button phx-click="cancel_order" phx-value-id={order.id} class="btn btn-error btn-xs">
+                  Cancel
+                </.button>
+              </div>
+            </:col>
+          </.table>
+        </.panel>
 
-        <div class="grid grid-cols-2 gap-4 sm:grid-cols-4 mb-6">
-          <div>
-            <div class="text-xs text-base-content/60">Plate</div>
-            <div class="font-medium">{@selected.record.vehicle_plate}</div>
+        <.panel title="Fleet">
+          <.table id="drivers" rows={rows(@drivers)}>
+            <:col :let={driver} label="Driver">{driver.driver_id}</:col>
+            <:col :let={driver} label="Status"><.status_badge status={driver.status} /></:col>
+            <:col :let={driver} label="Position">{position(driver.coordinates)}</:col>
+            <:col :let={driver} label="Speed">{speed(driver.speed_kmh)}</:col>
+            <:col :let={driver} label="Last seen">{seen(driver.synced_at)}</:col>
+            <:col :let={driver} label="">
+              <.button
+                phx-click="select_driver"
+                phx-value-id={driver.driver_id}
+                class="btn btn-ghost btn-xs"
+              >
+                Details
+              </.button>
+            </:col>
+          </.table>
+        </.panel>
+
+        <div :if={@selected} class="rounded-2xl border border-primary/40 bg-primary/5 p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-bold">
+              Driver #{@selected.record.id} — {@selected.record.name}
+            </h3>
+            <.button phx-click="close_driver" class="btn btn-ghost btn-sm">Close</.button>
           </div>
-          <div>
-            <div class="text-xs text-base-content/60">Capacity</div>
-            <div class="font-medium">{@selected.record.capacity_kg} kg</div>
-          </div>
-          <div>
-            <div class="text-xs text-base-content/60">Status</div>
-            <.status_badge status={@selected.record.status} />
-          </div>
-          <div>
-            <div class="text-xs text-base-content/60">Position</div>
-            <div class="font-medium">{driver_position(@selected.state)}</div>
-          </div>
-        </div>
 
-        <div :if={@selected.order} class="rounded-xl border border-base-300 p-4">
-          <div class="text-sm font-semibold mb-1">Current order ##{@selected.order.id}</div>
-          <.status_badge status={@selected.order.status} />
-          <span class="ml-2 text-sm text-base-content/70">{@selected.order.weight_kg} kg</span>
-        </div>
-
-        <form
-          :if={is_nil(@selected.order) and @selected.record.status == :online}
-          phx-submit="assign_to_driver"
-          class="flex items-end gap-3"
-        >
-          <input type="hidden" name="driver_id" value={@selected.record.id} />
-          <div>
-            <label class="text-xs text-base-content/60">Assign a pending order</label>
-            <select name="order_id" class="select select-sm select-bordered block">
-              <option :for={o <- pending_orders(@orders)} value={o.id}>
-                Order #{o.id} — {o.weight_kg} kg
-              </option>
-            </select>
+          <div class="grid grid-cols-2 gap-4 sm:grid-cols-4 mb-6">
+            <div>
+              <div class="text-xs text-base-content/60">Plate</div>
+              <div class="font-medium">{@selected.record.vehicle_plate}</div>
+            </div>
+            <div>
+              <div class="text-xs text-base-content/60">Capacity</div>
+              <div class="font-medium">{@selected.record.capacity_kg} kg</div>
+            </div>
+            <div>
+              <div class="text-xs text-base-content/60">Status</div>
+              <.status_badge status={@selected.record.status} />
+            </div>
+            <div>
+              <div class="text-xs text-base-content/60">Position</div>
+              <div class="font-medium">{driver_position(@selected.state)}</div>
+            </div>
           </div>
-          <.button class="btn btn-primary btn-sm">Assign</.button>
-        </form>
-      </div>
 
-      <div class="mt-8 rounded-2xl border border-base-300 p-6">
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="text-lg font-bold">Order history</h3>
+          <div :if={@selected.order} class="rounded-xl border border-base-300 p-4">
+            <div class="text-sm font-semibold mb-1">Current order ##{@selected.order.id}</div>
+            <.status_badge status={@selected.order.status} />
+            <span class="ml-2 text-sm text-base-content/70">{@selected.order.weight_kg} kg</span>
+          </div>
 
-          <form id="history-form" phx-change="filter_history">
-            <select name="status" class="select select-sm select-bordered">
-              <option value="all" selected={@history_status == :all}>All</option>
-              <option value="pending" selected={@history_status == :pending}>Pending</option>
-              <option value="assigned" selected={@history_status == :assigned}>Assigned</option>
-              <option value="picked_up" selected={@history_status == :picked_up}>Picked up</option>
-              <option value="delivered" selected={@history_status == :delivered}>Delivered</option>
-              <option value="cancelled" selected={@history_status == :cancelled}>Cancelled</option>
-            </select>
+          <form
+            :if={is_nil(@selected.order) and @selected.record.status == :online}
+            phx-submit="assign_to_driver"
+            class="flex items-end gap-3"
+          >
+            <input type="hidden" name="driver_id" value={@selected.record.id} />
+            <div>
+              <label class="text-xs text-base-content/60">Assign a pending order</label>
+              <select name="order_id" class="select select-sm select-bordered block">
+                <option :for={o <- pending_orders(@orders)} value={o.id}>
+                  Order #{o.id} — {o.weight_kg} kg
+                </option>
+              </select>
+            </div>
+            <.button class="btn btn-primary btn-sm">Assign</.button>
           </form>
         </div>
 
-        <.table id="history" rows={@history}>
-          <:col :let={order} label="ID">{order.id}</:col>
-          <:col :let={order} label="Status"><.status_badge status={order.status} /></:col>
-          <:col :let={order} label="Driver">{order.driver_id || "—"}</:col>
-          <:col :let={order} label="Weight">{order.weight_kg} kg</:col>
-          <:col :let={order} label="Created">{when_at(order.inserted_at)}</:col>
-        </.table>
-      </div>
+        <.panel title="Order history">
+          <:actions>
+            <form id="history-form" phx-change="filter_history">
+              <select name="status" class="select select-sm select-bordered">
+                <option value="all" selected={@history_status == :all}>All</option>
+                <option value="pending" selected={@history_status == :pending}>Pending</option>
+                <option value="assigned" selected={@history_status == :assigned}>Assigned</option>
+                <option value="picked_up" selected={@history_status == :picked_up}>Picked up</option>
+                <option value="delivered" selected={@history_status == :delivered}>Delivered</option>
+                <option value="cancelled" selected={@history_status == :cancelled}>Cancelled</option>
+              </select>
+            </form>
+          </:actions>
 
-      <%!-- Pending Driver Approvals Section --%>
-      <%= if length(@pending_approval) > 0 do %>
-        <div class="mt-10 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-6">
-          <h3 class="text-lg font-bold text-amber-400 mb-4 flex items-center gap-2">
-            <span>⚠️ Pending Admin Approval ({length(@pending_approval)})</span>
-          </h3>
+          <.table id="history" rows={@history}>
+            <:col :let={order} label="ID">{order.id}</:col>
+            <:col :let={order} label="Status"><.status_badge status={order.status} /></:col>
+            <:col :let={order} label="Driver">{order.driver_id || "—"}</:col>
+            <:col :let={order} label="Weight">{order.weight_kg} kg</:col>
+            <:col :let={order} label="Created">{when_at(order.inserted_at)}</:col>
+          </.table>
+        </.panel>
 
+        <.panel
+          :if={length(@pending_approval) > 0}
+          title={"⚠️ Pending approval (#{length(@pending_approval)})"}
+        >
           <.table id="pending-drivers" rows={@pending_approval}>
             <:col :let={driver} label="Name">{driver.name}</:col>
             <:col :let={driver} label="Phone">{driver.phone}</:col>
@@ -439,23 +448,23 @@ defmodule FleetPulseWeb.DispatchLive do
                 <.button
                   phx-click="approve_driver"
                   phx-value-id={driver.id}
-                  class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-3 py-1 rounded"
+                  class="btn btn-success btn-xs"
                 >
                   Approve
                 </.button>
                 <.button
                   phx-click="reject_driver"
                   phx-value-id={driver.id}
-                  class="bg-rose-600 hover:bg-rose-500 text-white text-xs px-3 py-1 rounded"
+                  class="btn btn-error btn-xs"
                 >
                   Reject
                 </.button>
               </div>
             </:col>
           </.table>
-        </div>
-      <% end %>
-    </Layouts.app>
+        </.panel>
+      </main>
+    </div>
     """
   end
 

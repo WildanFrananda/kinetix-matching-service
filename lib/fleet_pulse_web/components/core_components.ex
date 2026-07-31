@@ -564,4 +564,24 @@ defmodule FleetPulseWeb.CoreComponents do
     </div>
     """
   end
+
+  @doc """
+  A titled content panel — the standard card wrapper for dashboard sections.
+  """
+  attr :title, :string, default: nil
+  slot :actions
+  slot :inner_block, required: true
+
+  @spec panel(map()) :: rendered()
+  def panel(assigns) do
+    ~H"""
+    <section class="rounded-2xl border border-base-300 bg-base-100 p-6">
+      <div :if={@title || @actions != []} class="mb-4 flex items-center justify-between gap-4">
+        <h3 :if={@title} class="text-lg font-bold">{@title}</h3>
+        <div :if={@actions != []}>{render_slot(@actions)}</div>
+      </div>
+      {render_slot(@inner_block)}
+    </section>
+    """
+  end
 end
