@@ -18,6 +18,11 @@ defmodule FleetPulseWeb.Router do
   end
 
   scope "/", FleetPulseWeb do
+    get "/health", HealthController, :live
+    get "/health/ready", HealthController, :ready
+  end
+
+  scope "/", FleetPulseWeb do
     pipe_through :browser
 
     get "/", PageController, :home

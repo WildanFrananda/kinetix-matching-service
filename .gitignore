@@ -37,3 +37,5 @@ npm-debug.log
 /priv/plts/
 
 /.vscode
+
+.env
