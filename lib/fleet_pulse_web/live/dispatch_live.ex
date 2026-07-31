@@ -59,7 +59,7 @@ defmodule FleetPulseWeb.DispatchLive do
   end
 
   def handle_info({:order_changed, _order}, socket) do
-    {:noreply, socket |> assign_orders() |> assign_stats()}
+    {:noreply, socket |> assign_orders() |> assign_stats() |> assign_history()}
   end
 
   def handle_info(:flush, socket) do
@@ -159,6 +159,13 @@ defmodule FleetPulseWeb.DispatchLive do
       end
 
     {:noreply, assign_orders(flashed)}
+  end
+
+  def handle_event("filter_history", %{"status" => status}, socket) do
+    {:noreply,
+     socket
+     |> assign(:history_status, to_status_filter(status))
+     |> assign_history()}
   end
 
   @impl Phoenix.LiveView
@@ -303,6 +310,32 @@ defmodule FleetPulseWeb.DispatchLive do
         <:col :let={driver} label="Speed">{speed(driver.speed_kmh)}</:col>
         <:col :let={driver} label="Last seen">{seen(driver.synced_at)}</:col>
       </.table>
+
+      <div class="mt-8 rounded-2xl border border-base-300 p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-bold">Order history</h3>
+
+          <form id="history-form" phx-change="filter_history">
+            <select name="status" class="select select-sm select-bordered">
+              <option value="all" selected={@history_status == :all}>All</option>
+              <option value="pending" selected={@history_status == :pending}>Pending</option>
+              <option value="assigned" selected={@history_status == :assigned}>Assigned</option>
+              <option value="picked_up" selected={@history_status == :picked_up}>Picked up</option>
+              <option value="delivered" selected={@history_status == :delivered}>Delivered</option>
+              <option value="cancelled" selected={@history_status == :cancelled}>Cancelled</option>
+            </select>
+          </form>
+        </div>
+
+        <.table id="history" rows={@history}>
+          <:col :let={order} label="ID">{order.id}</:col>
+          <:col :let={order} label="Status"><.status_badge status={order.status} /></:col>
+          <:col :let={order} label="Driver">{order.driver_id || "—"}</:col>
+          <:col :let={order} label="Weight">{order.weight_kg} kg</:col>
+          <:col :let={order} label="Created">{when_at(order.inserted_at)}</:col>
+        </.table>
+      </div>
+
       <%!-- Pending Driver Approvals Section --%>
       <%= if length(@pending_approval) > 0 do %>
         <div class="mt-10 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-6">
@@ -361,6 +394,8 @@ defmodule FleetPulseWeb.DispatchLive do
     |> assign_orders()
     |> assign_order_form()
     |> assign_stats()
+    |> assign(:history_status, :all)
+    |> assign_history()
   end
 
   @spec assign_orders(Socket.t()) :: Socket.t()
@@ -403,6 +438,12 @@ defmodule FleetPulseWeb.DispatchLive do
     assign(socket, :delivered_today, Dispatch.count_delivered_today())
   end
 
+  @spec assign_history(Socket.t()) :: Socket.t()
+  defp assign_history(socket) do
+    status = socket.assigns[:history_status] || :all
+    assign(socket, :history, Dispatch.list_orders(status: status, limit: 50))
+  end
+
   @spec interval_or_default(term()) :: pos_integer()
   defp interval_or_default(value) when is_integer(value) and value > 0, do: value
   defp interval_or_default(_value), do: @default_flush_interval_ms
@@ -438,4 +479,16 @@ defmodule FleetPulseWeb.DispatchLive do
   @spec seen(DateTime.t() | nil) :: String.t()
   defp seen(nil), do: "—"
   defp seen(at), do: Calendar.strftime(at, "%H:%M:%S")
+
+  @spec when_at(DateTime.t() | nil) :: String.t()
+  defp when_at(nil), do: "—"
+  defp when_at(at), do: Calendar.strftime(at, "%d %b %H:%M")
+
+  @spec to_status_filter(String.t()) :: Order.status() | :all
+  defp to_status_filter("pending"), do: :pending
+  defp to_status_filter("assigned"), do: :assigned
+  defp to_status_filter("picked_up"), do: :picked_up
+  defp to_status_filter("delivered"), do: :delivered
+  defp to_status_filter("cancelled"), do: :cancelled
+  defp to_status_filter(_status), do: :all
 end

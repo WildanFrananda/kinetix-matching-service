@@ -71,6 +71,25 @@ defmodule FleetPulse.Dispatch do
     |> Repo.all()
   end
 
+  @typedoc "Options for `list_orders/1`."
+  @type order_filter :: [status: Order.status() | :all, limit: pos_integer()]
+
+  @doc """
+  Recent orders, newest first, optionally filtered by status. The dispatcher's
+  history log — includes terminal orders the active board drops.
+  """
+  @spec list_orders(order_filter()) :: [Order.t()]
+  def list_orders(opts \\ []) do
+    status = Keyword.get(opts, :status, :all)
+    max = Keyword.get(opts, :limit, 50)
+
+    Order
+    |> filter_status(status)
+    |> order_by([o], desc: o.inserted_at)
+    |> limit(^max)
+    |> Repo.all()
+  end
+
   @doc """
   How many orders reached `:delivered` today (UTC). A cheap KPI query.
   """
@@ -333,4 +352,8 @@ defmodule FleetPulse.Dispatch do
   end
 
   defp emit_transition_telemetry(%Order{}), do: :ok
+
+  @spec filter_status(Ecto.Queryable.t(), Order.status() | :all) :: Ecto.Queryable.t()
+  defp filter_status(query, :all), do: query
+  defp filter_status(query, status), do: where(query, [o], o.status == ^status)
 end

@@ -308,4 +308,22 @@ defmodule FleetPulse.DispatchTest do
       assert Dispatch.count_delivered_today() >= 1
     end
   end
+
+  describe "list_orders/1" do
+    test "filters by status, newest first" do
+      driver = online_driver(0.5, 100)
+      {:ok, delivered} = Dispatch.assign_order(order!().id)
+      {:ok, _} = Dispatch.mark_picked_up(delivered.id, driver.id)
+      {:ok, _} = Dispatch.mark_delivered(delivered.id, driver.id)
+      {:ok, pending} = Dispatch.create_order(order_attrs())
+
+      delivered_ids = Enum.map(Dispatch.list_orders(status: :delivered), & &1.id)
+      assert delivered.id in delivered_ids
+      refute pending.id in delivered_ids
+
+      all_ids = Enum.map(Dispatch.list_orders(status: :all), & &1.id)
+      assert pending.id in all_ids
+      assert delivered.id in all_ids
+    end
+  end
 end

@@ -191,4 +191,41 @@ defmodule FleetPulseWeb.DispatchLiveTest do
       assert html =~ "Delivered today"
     end
   end
+
+  test "order history filters by status", %{conn: conn} do
+    driver = FleetPulse.TrackingFixtures.driver_fixture()
+    {:ok, _} = FleetPulse.Tracking.start_tracking(driver.id)
+    {:ok, _} = FleetPulse.Tracking.set_status(driver.id, :online)
+
+    :ok =
+      FleetPulse.Tracking.track_location(driver.id, %{
+        latitude: -6.2,
+        longitude: 106.8,
+        recorded_at: DateTime.utc_now()
+      })
+
+    {:ok, _} = FleetPulse.Tracking.fetch_state(driver.id)
+    on_exit(fn -> FleetPulse.Tracking.stop_tracking(driver.id) end)
+
+    {:ok, order} =
+      FleetPulse.Dispatch.create_order(%{
+        pickup_latitude: -6.2,
+        pickup_longitude: 106.8,
+        dropoff_latitude: -6.9,
+        dropoff_longitude: 107.6,
+        weight_kg: 50
+      })
+
+    {:ok, _} = FleetPulse.Dispatch.assign_order(order.id)
+    {:ok, _} = FleetPulse.Dispatch.mark_picked_up(order.id, driver.id)
+    {:ok, _} = FleetPulse.Dispatch.mark_delivered(order.id, driver.id)
+
+    {:ok, view, _html} = live(conn, ~p"/dispatch")
+
+    view
+    |> form("#history-form", %{status: "delivered"})
+    |> render_change()
+
+    assert has_element?(view, "#history td", to_string(order.id))
+  end
 end
