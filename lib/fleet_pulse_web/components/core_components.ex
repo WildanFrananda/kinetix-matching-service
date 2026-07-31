@@ -520,4 +520,48 @@ defmodule FleetPulseWeb.CoreComponents do
   def translate_errors(errors, field) when is_list(errors) do
     for {^field, {msg, opts}} <- errors, do: translate_error({msg, opts})
   end
+
+  @doc """
+  A coloured status badge for a driver or order status.
+  """
+  attr :status, :atom, required: true
+  attr :class, :any, default: nil
+
+  @spec status_badge(map()) :: rendered()
+  def status_badge(assigns) do
+    ~H"""
+    <span class={["badge badge-sm font-medium capitalize", badge_class(@status), @class]}>
+      {@status |> to_string() |> String.replace("_", " ")}
+    </span>
+    """
+  end
+
+  @spec badge_class(atom()) :: String.t()
+  defp badge_class(:online), do: "badge-success"
+  defp badge_class(:busy), do: "badge-warning"
+  defp badge_class(:offline), do: "badge-ghost"
+  defp badge_class(:pending), do: "badge-info"
+  defp badge_class(:assigned), do: "badge-primary"
+  defp badge_class(:picked_up), do: "badge-secondary"
+  defp badge_class(:delivered), do: "badge-success"
+  defp badge_class(:cancelled), do: "badge-error"
+  defp badge_class(_status), do: "badge-ghost"
+
+  @doc """
+  A KPI stat tile: a label, a big value, and an optional hint line.
+  """
+  attr :label, :string, required: true
+  attr :value, :any, required: true
+  attr :hint, :string, default: nil
+
+  @spec stat_tile(map()) :: rendered()
+  def stat_tile(assigns) do
+    ~H"""
+    <div class="rounded-2xl border border-base-300 bg-base-100 p-5">
+      <div class="text-sm text-base-content/60">{@label}</div>
+      <div class="mt-1 text-3xl font-bold tabular-nums">{@value}</div>
+      <div :if={@hint} class="mt-1 text-xs text-base-content/50">{@hint}</div>
+    </div>
+    """
+  end
 end

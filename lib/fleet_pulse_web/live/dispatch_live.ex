@@ -59,7 +59,7 @@ defmodule FleetPulseWeb.DispatchLive do
   end
 
   def handle_info({:order_changed, _order}, socket) do
-    {:noreply, assign_orders(socket)}
+    {:noreply, socket |> assign_orders() |> assign_stats()}
   end
 
   def handle_info(:flush, socket) do
@@ -171,6 +171,17 @@ defmodule FleetPulseWeb.DispatchLive do
         <:subtitle>{map_size(@drivers)} driver(s) tracked</:subtitle>
       </.header>
 
+      <div class="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <.stat_tile
+          label="Drivers online"
+          value={online_count(@drivers)}
+          hint={"#{map_size(@drivers)} tracked"}
+        />
+        <.stat_tile label="Active orders" value={length(@orders)} />
+        <.stat_tile label="Waiting" value={pending_count(@orders)} hint="unassigned" />
+        <.stat_tile label="Delivered today" value={@delivered_today} />
+      </div>
+
       <div class="my-6">
         <div
           id="fleet-map-container"
@@ -257,7 +268,7 @@ defmodule FleetPulseWeb.DispatchLive do
 
         <.table id="orders" rows={@orders}>
           <:col :let={order} label="ID">{order.id}</:col>
-          <:col :let={order} label="Status">{order.status}</:col>
+          <:col :let={order} label="Status"><.status_badge status={order.status} /></:col>
           <:col :let={order} label="Pickup">
             {order_point(order.pickup_latitude, order.pickup_longitude)}
           </:col>
@@ -287,7 +298,7 @@ defmodule FleetPulseWeb.DispatchLive do
 
       <.table id="drivers" rows={rows(@drivers)}>
         <:col :let={driver} label="Driver">{driver.driver_id}</:col>
-        <:col :let={driver} label="Status">{driver.status}</:col>
+        <:col :let={driver} label="Status"><.status_badge status={driver.status} /></:col>
         <:col :let={driver} label="Position">{position(driver.coordinates)}</:col>
         <:col :let={driver} label="Speed">{speed(driver.speed_kmh)}</:col>
         <:col :let={driver} label="Last seen">{seen(driver.synced_at)}</:col>
@@ -349,6 +360,7 @@ defmodule FleetPulseWeb.DispatchLive do
     |> assign(:pending, %{})
     |> assign_orders()
     |> assign_order_form()
+    |> assign_stats()
   end
 
   @spec assign_orders(Socket.t()) :: Socket.t()
@@ -386,6 +398,11 @@ defmodule FleetPulseWeb.DispatchLive do
     |> interval_or_default()
   end
 
+  @spec assign_stats(Socket.t()) :: Socket.t()
+  defp assign_stats(socket) do
+    assign(socket, :delivered_today, Dispatch.count_delivered_today())
+  end
+
   @spec interval_or_default(term()) :: pos_integer()
   defp interval_or_default(value) when is_integer(value) and value > 0, do: value
   defp interval_or_default(_value), do: @default_flush_interval_ms
@@ -393,6 +410,16 @@ defmodule FleetPulseWeb.DispatchLive do
   @spec rows(index()) :: [DriverState.t()]
   defp rows(drivers) do
     drivers |> Map.values() |> Enum.sort_by(& &1.driver_id)
+  end
+
+  @spec online_count(index()) :: non_neg_integer()
+  defp online_count(drivers) do
+    Enum.count(Map.values(drivers), &(&1.status == :online))
+  end
+
+  @spec pending_count([Order.t()]) :: non_neg_integer()
+  def pending_count(orders) do
+    Enum.count(orders, &(&1.status == :pending))
   end
 
   @spec position(Types.coordinates() | nil) :: String.t()

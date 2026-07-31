@@ -297,4 +297,15 @@ defmodule FleetPulse.DispatchTest do
       assert_receive {:order_changed, %Order{status: :delivered}}
     end
   end
+
+  describe "count_delivered_today/0" do
+    test "counts a delivered order" do
+      driver = online_driver(0.5, 100)
+      {:ok, order} = Dispatch.assign_order(order!().id)
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id)
+
+      assert Dispatch.count_delivered_today() >= 1
+    end
+  end
 end

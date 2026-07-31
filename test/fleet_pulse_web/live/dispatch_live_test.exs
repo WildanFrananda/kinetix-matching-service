@@ -182,5 +182,13 @@ defmodule FleetPulseWeb.DispatchLiveTest do
 
       refute has_element?(view, selector)
     end
+
+    test "renders the KPI row", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/dispatch")
+
+      assert html =~ "Drivers online"
+      assert html =~ "Active orders"
+      assert html =~ "Delivered today"
+    end
   end
 end

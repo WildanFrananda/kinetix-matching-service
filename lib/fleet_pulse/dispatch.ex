@@ -71,6 +71,18 @@ defmodule FleetPulse.Dispatch do
     |> Repo.all()
   end
 
+  @doc """
+  How many orders reached `:delivered` today (UTC). A cheap KPI query.
+  """
+  @spec count_delivered_today() :: non_neg_integer()
+  def count_delivered_today do
+    start_of_today = DateTime.new!(Date.utc_today(), ~T[00:00:00.000000])
+
+    Order
+    |> where([o], o.status == :delivered and o.updated_at >= ^start_of_today)
+    |> Repo.aggregate(:count)
+  end
+
   @spec subscribe_orders() :: Events.subscribe_result()
   def subscribe_orders, do: Events.subscribe_orders()
 
