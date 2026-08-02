@@ -17,6 +17,11 @@ defmodule FleetPulseWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :partner_api do
+    plug :accepts, ["json"]
+    plug FleetPulseWeb.Plugs.ApiKeyAuth
+  end
+
   scope "/", FleetPulseWeb do
     get "/health", HealthController, :live
     get "/health/ready", HealthController, :ready
