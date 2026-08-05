@@ -198,39 +198,145 @@ defmodule FleetPulseWeb.DispatchLive do
   @spec render(map()) :: Rendered.t()
   def render(assigns) do
     ~H"""
-    <div class="min-h-screen bg-base-200 text-base-content">
-      <header class="navbar bg-base-100 border-b border-base-300 px-6">
-        <div class="flex-1 flex items-center gap-2 text-lg font-bold">
-          🛰️ <span>FleetPulse Dispatch</span>
-        </div>
-        <div class="flex items-center gap-4 text-sm">
-          <span class="hidden sm:inline text-base-content/60">{@current_admin.email}</span>
-          <.link href={~p"/admin/log_out"} method="delete" class="btn btn-ghost btn-sm">
-            Log out
-          </.link>
+    <div class="min-h-screen bg-slate-950 text-slate-100 font-sans antialiased selection:bg-indigo-500 selection:text-white">
+      <%!-- Top Glassmorphism Navigation Bar --%>
+      <header class="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-slate-900/80 backdrop-blur-xl px-6 py-3 shadow-2xl shadow-slate-950/50">
+        <div class="mx-auto flex max-w-7xl items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 text-white shadow-lg shadow-indigo-500/30">
+              <span class="text-xl">🛰️</span>
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h1 class="bg-gradient-to-r from-cyan-400 via-indigo-300 to-purple-400 bg-clip-text text-xl font-extrabold tracking-tight text-transparent">
+                  FleetPulse Dispatch
+                </h1>
+                <span class="rounded-full bg-indigo-500/10 border border-indigo-500/30 px-2 py-0.5 text-[10px] font-bold text-indigo-400 tracking-wider uppercase">
+                  Enterprise
+                </span>
+              </div>
+              <p class="text-xs text-slate-400">
+                High-Frequency Telemetry & Autonomous Routing Engine
+              </p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-5">
+            <div class="hidden sm:flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-400 shadow-inner">
+              <span class="relative flex h-2 w-2">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
+              </span>
+              LIVE ENGINE ACTIVE
+            </div>
+
+            <div class="flex items-center gap-3 border-l border-slate-800 pl-5">
+              <div class="flex h-8 w-8 items-center justify-center rounded-full bg-slate-800 font-semibold text-xs text-indigo-300 ring-2 ring-indigo-500/30">
+                {String.at(@current_admin.email, 0) |> String.upcase()}
+              </div>
+              <span class="hidden md:inline text-xs font-medium text-slate-300">{@current_admin.email}</span>
+              <.link
+                href={~p"/admin/log_out"}
+                method="delete"
+                class="rounded-lg border border-slate-700/80 bg-slate-800/50 px-3 py-1.5 text-xs font-medium text-slate-300 transition-all hover:bg-slate-700 hover:text-white hover:border-slate-600
+    active:scale-95"
+              >
+                Log out
+              </.link>
+            </div>
+          </div>
         </div>
       </header>
 
       <Layouts.flash_group flash={@flash} />
 
       <main class="mx-auto max-w-7xl px-6 py-8 space-y-8">
-        <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <.stat_tile
-            label="Drivers online"
-            value={online_count(@drivers)}
-            hint={"#{map_size(@drivers)} tracked"}
-          />
-          <.stat_tile label="Active orders" value={length(@orders)} />
-          <.stat_tile label="Waiting" value={pending_count(@orders)} hint="unassigned" />
-          <.stat_tile label="Delivered today" value={@delivered_today} />
+        <%!-- KPI Stat Grid --%>
+        <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          <div class="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl backdrop-blur-xl transition-all duration-300 hover:border-cyan-500/40 hover:shadow-
+    cyan-950/20">
+            <div class="flex items-center justify-between text-slate-400">
+              <span class="text-xs font-semibold uppercase tracking-wider">Drivers Online</span>
+              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-500/10 text-cyan-400">
+                ⚡
+              </div>
+            </div>
+            <div class="mt-3 flex items-baseline gap-2">
+              <span class="text-3xl font-black text-white tabular-nums tracking-tight">{online_count(
+                @drivers
+              )}</span>
+              <span class="text-xs font-medium text-slate-400">/ {map_size(@drivers)} tracked</span>
+            </div>
+            <div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+              <div
+                class="h-full bg-gradient-to-r from-cyan-500 to-blue-500"
+                style={"width: #{if map_size(@drivers) > 0, do: (online_count(@drivers) / map_size(@drivers) * 100), else: 0}%"}
+              >
+              </div>
+            </div>
+          </div>
+
+          <div class="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl backdrop-blur-xl transition-all duration-300 hover:border-indigo-500/40 hover:shadow-
+    indigo-950/20">
+            <div class="flex items-center justify-between text-slate-400">
+              <span class="text-xs font-semibold uppercase tracking-wider">Active Orders</span>
+              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-400">
+                📦
+              </div>
+            </div>
+            <div class="mt-3 text-3xl font-black text-white tabular-nums tracking-tight">
+              {length(@orders)}
+            </div>
+            <p class="mt-1 text-xs text-slate-400">In-flight delivery load</p>
+          </div>
+
+          <div class="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl backdrop-blur-xl transition-all duration-300 hover:border-amber-500/40 hover:shadow-
+    amber-950/20">
+            <div class="flex items-center justify-between text-slate-400">
+              <span class="text-xs font-semibold uppercase tracking-wider">Waiting Assign</span>
+              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10 text-amber-400">
+                ⏳
+              </div>
+            </div>
+            <div class="mt-3 text-3xl font-black text-amber-400 tabular-nums tracking-tight">
+              {pending_count(@orders)}
+            </div>
+            <p class="mt-1 text-xs text-slate-400">Pending auto/manual dispatch</p>
+          </div>
+
+          <div class="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl backdrop-blur-xl transition-all duration-300 hover:border-emerald-500/40 hover:shadow-
+    emerald-950/20">
+            <div class="flex items-center justify-between text-slate-400">
+              <span class="text-xs font-semibold uppercase tracking-wider">Delivered Today</span>
+              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
+                ✅
+              </div>
+            </div>
+            <div class="mt-3 text-3xl font-black text-emerald-400 tabular-nums tracking-tight">
+              {@delivered_today}
+            </div>
+            <p class="mt-1 text-xs text-slate-400">Completed jobs today</p>
+          </div>
         </div>
 
-        <div
-          id="fleet-map-container"
-          phx-hook=".FleetMap"
-          phx-update="ignore"
-          class="h-[520px] w-full rounded-2xl border border-base-300 shadow-xl overflow-hidden"
-        >
+        <%!-- Live Telemetry Map Container --%>
+        <div class="relative overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/80 shadow-2xl backdrop-blur-2xl">
+          <div class="flex items-center justify-between border-b border-slate-800/80 px-6 py-4">
+            <div class="flex items-center gap-2">
+              <div class="h-2.5 w-2.5 rounded-full bg-cyan-400 animate-ping"></div>
+              <h2 class="text-sm font-bold uppercase tracking-wider text-slate-200">
+                Live Spatial Map (CARTO Dark)
+              </h2>
+            </div>
+            <div class="text-xs text-slate-400">Real-time driver markers broadcasted via PubSub</div>
+          </div>
+          <div
+            id="fleet-map-container"
+            phx-hook=".FleetMap"
+            phx-update="ignore"
+            class="h-[520px] w-full bg-slate-950"
+          >
+          </div>
         </div>
 
         <script :type={Phoenix.LiveView.ColocatedHook} name=".FleetMap">
@@ -258,7 +364,14 @@ defmodule FleetPulseWeb.DispatchLive do
                     this.markers[driver.id].setLatLng(latLng)
                     this.markers[driver.id].getPopup().setContent(this.popupContent(driver))
                   } else {
-                    const marker = L.circleMarker(latLng)
+                    const marker = L.circleMarker(latLng, {
+                      radius: 8,
+                      fillColor: driver.status === 'online' ? '#10b981' : (driver.status === 'busy' ? '#f59e0b' : '#64748b'),
+                      color: '#ffffff',
+                      weight: 2,
+                      opacity: 1,
+                      fillOpacity: 0.9
+                    })
                       .addTo(this.map)
                       .bindPopup(this.popupContent(driver))
                     this.markers[driver.id] = marker
@@ -275,147 +388,292 @@ defmodule FleetPulseWeb.DispatchLive do
             popupContent(driver) {
               const speed = driver.speed ? Math.round(driver.speed * 10) / 10 : 0;
               return `
-                <div class="p-1 text-slate-900 font-sans">
-                  <div class="font-bold text-sm">🚚 Driver #${driver.id}</div>
-                  <div class="text-xs text-slate-600 mt-1">Status: <span class="font-semibold uppercase text-blue-600">${driver.status}</span></div>
-                  <div class="text-xs text-slate-600">Speed: <span class="font-semibold">${speed} km/h</span></div>
+                <div class="p-2 text-slate-900 font-sans min-w-[140px]">
+                  <div class="font-bold text-sm text-slate-900">🚚 Driver #${driver.id}</div>
+                  <div class="text-xs text-slate-600 mt-1">Status: <span class="font-bold uppercase text-indigo-600">${driver.status}</span></div>
+                  <div class="text-xs text-slate-600">Speed: <span class="font-semibold text-slate-800">${speed} km/h</span></div>
                 </div>
               `
             }
           }
         </script>
 
-        <.panel title="Orders">
+        <%!-- Order Dispatch & Creation Section --%>
+        <div class="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 shadow-xl backdrop-blur-xl">
+          <div class="mb-6 flex items-center justify-between border-b border-slate-800 pb-4">
+            <div>
+              <h2 class="text-lg font-bold text-white">Order Dispatch Management</h2>
+              <p class="text-xs text-slate-400">
+                Create new delivery orders or manually trigger immediate driver assignment.
+              </p>
+            </div>
+            <span class="rounded-lg bg-indigo-500/10 border border-indigo-500/20 px-3 py-1 text-xs font-medium text-indigo-300">
+              {length(@orders)} Active Orders
+            </span>
+          </div>
+
           <.form
             for={@order_form}
             id="order-form"
             phx-submit="create_order"
-            class="grid grid-cols-2 gap-3 sm:grid-cols-6 items-end mb-6"
+            class="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6 items-end rounded-2xl border border-slate-800/80 bg-slate-950/60 p-5"
           >
-            <.input field={@order_form[:pickup_latitude]} type="number" step="any" label="Pickup lat" />
-            <.input
-              field={@order_form[:pickup_longitude]}
-              type="number"
-              step="any"
-              label="Pickup lng"
-            />
-            <.input
-              field={@order_form[:dropoff_latitude]}
-              type="number"
-              step="any"
-              label="Dropoff lat"
-            />
-            <.input
-              field={@order_form[:dropoff_longitude]}
-              type="number"
-              step="any"
-              label="Dropoff lng"
-            />
-            <.input field={@order_form[:weight_kg]} type="number" label="Weight (kg)" />
-            <.button class="btn btn-primary">Create</.button>
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">Pickup Lat</label>
+              <.input
+                field={@order_form[:pickup_latitude]}
+                type="number"
+                step="any"
+                placeholder="-6.2000"
+                class="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white
+    placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">Pickup Lng</label>
+              <.input
+                field={@order_form[:pickup_longitude]}
+                type="number"
+                step="any"
+                placeholder="106.8100"
+                class="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white
+    placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">Dropoff Lat</label>
+              <.input
+                field={@order_form[:dropoff_latitude]}
+                type="number"
+                step="any"
+                placeholder="-6.2100"
+                class="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white
+    placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">Dropoff Lng</label>
+              <.input
+                field={@order_form[:dropoff_longitude]}
+                type="number"
+                step="any"
+                placeholder="106.8200"
+                class="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white
+    placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">Weight (kg)</label>
+              <.input
+                field={@order_form[:weight_kg]}
+                type="number"
+                placeholder="5.0"
+                class="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white placeholder-slate-500
+    focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <button
+                type="submit"
+                class="w-full rounded-xl bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:from-indigo-600 hover:to-pink-600 px-4 py-2 text-xs font-bold text-white
+    shadow-lg shadow-indigo-500/25 transition-all active:scale-95"
+              >
+                + Create Order
+              </button>
+            </div>
           </.form>
 
-          <.table id="orders" rows={@orders}>
-            <:col :let={order} label="ID">{order.id}</:col>
-            <:col :let={order} label="Status"><.status_badge status={order.status} /></:col>
-            <:col :let={order} label="Pickup">
-              {order_point(order.pickup_latitude, order.pickup_longitude)}
-            </:col>
-            <:col :let={order} label="Weight">{order.weight_kg} kg</:col>
-            <:col :let={order} label="Driver">{order.driver_id || "—"}</:col>
-            <:col :let={order} label="Actions">
-              <div class="flex gap-2">
-                <.button
-                  :if={order.status == :pending}
-                  phx-click="assign_order"
-                  phx-value-id={order.id}
-                  class="btn btn-primary btn-xs"
+          <div class="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-950/40">
+            <.table id="orders" rows={@orders}>
+              <:col :let={order} label="ID">
+                <span class="font-mono text-xs font-bold text-indigo-400">#{order.id}</span>
+              </:col>
+              <:col :let={order} label="Status"><.status_badge status={order.status} /></:col>
+              <:col :let={order} label="Pickup">
+                <span class="font-mono text-xs text-slate-300">{order_point(
+                  order.pickup_latitude,
+                  order.pickup_longitude
+                )}</span>
+              </:col>
+              <:col :let={order} label="Weight">
+                <span class="text-xs font-medium text-slate-200">{order.weight_kg} kg</span>
+              </:col>
+              <:col :let={order} label="Assigned Driver">
+                <span class="font-mono text-xs text-slate-300">{if order.driver_id,
+                  do: "Driver ##{order.driver_id}",
+                  else: "—"}</span>
+              </:col>
+              <:col :let={order} label="Actions">
+                <div class="flex items-center gap-2">
+                  <button
+                    :if={order.status == :pending}
+                    phx-click="assign_order"
+                    phx-value-id={order.id}
+                    class="rounded-lg bg-indigo-600/80 hover:bg-indigo-500 px-3 py-1 text-xs font-medium text-white shadow-sm transition-all"
+                  >
+                    Assign Now
+                  </button>
+                  <button
+                    phx-click="cancel_order"
+                    phx-value-id={order.id}
+                    class="rounded-lg bg-rose-600/20 hover:bg-rose-600/40 border border-rose-500/30 px-3 py-1 text-xs font-medium text-rose-300 transition-all"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </:col>
+            </.table>
+          </div>
+        </div>
+
+        <%!-- Active Fleet Drivers Section --%>
+        <div class="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 shadow-xl backdrop-blur-xl">
+          <div class="mb-6 flex items-center justify-between border-b border-slate-800 pb-4">
+            <div>
+              <h2 class="text-lg font-bold text-white">Tracked Fleet Roster</h2>
+              <p class="text-xs text-slate-400">
+                Live positions and active statuses of all registered drivers.
+              </p>
+            </div>
+            <span class="rounded-lg bg-cyan-500/10 border border-cyan-500/20 px-3 py-1 text-xs font-medium text-cyan-300">
+              {map_size(@drivers)} Drivers Tracked
+            </span>
+          </div>
+
+          <div class="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-950/40">
+            <.table id="drivers" rows={rows(@drivers)}>
+              <:col :let={driver} label="Driver">
+                <div class="flex items-center gap-2">
+                  <span class="h-2 w-2 rounded-full bg-emerald-400"></span>
+                  <span class="font-mono text-xs font-bold text-white">Driver #{driver.driver_id}</span>
+                </div>
+              </:col>
+              <:col :let={driver} label="Status"><.status_badge status={driver.status} /></:col>
+              <:col :let={driver} label="Coordinates">
+                <span class="font-mono text-xs text-slate-300">{position(driver.coordinates)}</span>
+              </:col>
+              <:col :let={driver} label="Speed">
+                <span class="font-mono text-xs font-semibold text-cyan-300">{speed(driver.speed_kmh)}</span>
+              </:col>
+              <:col :let={driver} label="Last Ping">
+                <span class="text-xs text-slate-400">{seen(driver.synced_at)}</span>
+              </:col>
+              <:col :let={driver} label="">
+                <button
+                  phx-click="select_driver"
+                  phx-value-id={driver.driver_id}
+                  class="rounded-lg border border-slate-700 bg-slate-800/70 hover:bg-slate-700 px-3 py-1 text-xs font-medium text-slate-200 transition-all"
                 >
-                  Assign
-                </.button>
-                <.button phx-click="cancel_order" phx-value-id={order.id} class="btn btn-error btn-xs">
-                  Cancel
-                </.button>
+                  View Details
+                </button>
+              </:col>
+            </.table>
+          </div>
+        </div>
+
+        <%!-- Selected Driver Detail Modal/Card --%>
+        <div
+          :if={@selected}
+          class="rounded-3xl border border-indigo-500/40 bg-slate-900/90 p-6 shadow-2xl shadow-indigo-500/10 backdrop-blur-2xl animate-fade-in"
+        >
+          <div class="flex items-center justify-between mb-6 border-b border-slate-800 pb-4">
+            <div class="flex items-center gap-3">
+              <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-400 font-bold">
+                🚚
               </div>
-            </:col>
-          </.table>
-        </.panel>
-
-        <.panel title="Fleet">
-          <.table id="drivers" rows={rows(@drivers)}>
-            <:col :let={driver} label="Driver">{driver.driver_id}</:col>
-            <:col :let={driver} label="Status"><.status_badge status={driver.status} /></:col>
-            <:col :let={driver} label="Position">{position(driver.coordinates)}</:col>
-            <:col :let={driver} label="Speed">{speed(driver.speed_kmh)}</:col>
-            <:col :let={driver} label="Last seen">{seen(driver.synced_at)}</:col>
-            <:col :let={driver} label="">
-              <.button
-                phx-click="select_driver"
-                phx-value-id={driver.driver_id}
-                class="btn btn-ghost btn-xs"
-              >
-                Details
-              </.button>
-            </:col>
-          </.table>
-        </.panel>
-
-        <div :if={@selected} class="rounded-2xl border border-primary/40 bg-primary/5 p-6">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="text-lg font-bold">
-              Driver #{@selected.record.id} — {@selected.record.name}
-            </h3>
-            <.button phx-click="close_driver" class="btn btn-ghost btn-sm">Close</.button>
+              <div>
+                <h3 class="text-lg font-bold text-white">
+                  Driver #{@selected.record.id} — {@selected.record.name}
+                </h3>
+                <p class="text-xs text-slate-400">Phone: {@selected.record.phone}</p>
+              </div>
+            </div>
+            <button
+              phx-click="close_driver"
+              class="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700"
+            >Close</button>
           </div>
 
           <div class="grid grid-cols-2 gap-4 sm:grid-cols-4 mb-6">
-            <div>
-              <div class="text-xs text-base-content/60">Plate</div>
-              <div class="font-medium">{@selected.record.vehicle_plate}</div>
+            <div class="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+              <div class="text-xs text-slate-400">Vehicle Plate</div>
+              <div class="font-mono text-sm font-bold text-white mt-1">
+                {@selected.record.vehicle_plate}
+              </div>
             </div>
-            <div>
-              <div class="text-xs text-base-content/60">Capacity</div>
-              <div class="font-medium">{@selected.record.capacity_kg} kg</div>
+            <div class="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+              <div class="text-xs text-slate-400">Capacity</div>
+              <div class="text-sm font-bold text-white mt-1">{@selected.record.capacity_kg} kg</div>
             </div>
-            <div>
-              <div class="text-xs text-base-content/60">Status</div>
-              <.status_badge status={@selected.record.status} />
+            <div class="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+              <div class="text-xs text-slate-400">Status</div>
+              <div class="mt-1"><.status_badge status={@selected.record.status} /></div>
             </div>
-            <div>
-              <div class="text-xs text-base-content/60">Position</div>
-              <div class="font-medium">{driver_position(@selected.state)}</div>
+            <div class="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+              <div class="text-xs text-slate-400">Current Position</div>
+              <div class="font-mono text-xs font-medium text-slate-200 mt-1">
+                {driver_position(@selected.state)}
+              </div>
             </div>
           </div>
 
-          <div :if={@selected.order} class="rounded-xl border border-base-300 p-4">
-            <div class="text-sm font-semibold mb-1">Current order ##{@selected.order.id}</div>
-            <.status_badge status={@selected.order.status} />
-            <span class="ml-2 text-sm text-base-content/70">{@selected.order.weight_kg} kg</span>
+          <div
+            :if={@selected.order}
+            class="rounded-2xl border border-indigo-500/30 bg-indigo-500/10 p-5 mb-4"
+          >
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-xs font-bold uppercase tracking-wider text-indigo-400">
+                  Current Active Order
+                </div>
+                <div class="text-base font-bold text-white mt-0.5">Order ##{@selected.order.id}</div>
+              </div>
+              <.status_badge status={@selected.order.status} />
+            </div>
+            <div class="mt-2 text-xs text-slate-300">
+              Package Weight: <span class="font-bold">{@selected.order.weight_kg} kg</span>
+            </div>
           </div>
 
           <form
             :if={is_nil(@selected.order) and @selected.record.status == :online}
             phx-submit="assign_to_driver"
-            class="flex items-end gap-3"
+            class="flex items-end gap-3 rounded-2xl border border-slate-800 bg-slate-950/60 p-4"
           >
             <input type="hidden" name="driver_id" value={@selected.record.id} />
-            <div>
-              <label class="text-xs text-base-content/60">Assign a pending order</label>
-              <select name="order_id" class="select select-sm select-bordered block">
+            <div class="flex-1">
+              <label class="block text-xs font-semibold text-slate-300 mb-1">Assign Pending Order</label>
+              <select
+                name="order_id"
+                class="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white focus:border-indigo-500 focus:outline-none"
+              >
                 <option :for={o <- pending_orders(@orders)} value={o.id}>
                   Order #{o.id} — {o.weight_kg} kg
                 </option>
               </select>
             </div>
-            <.button class="btn btn-primary btn-sm">Assign</.button>
+            <button
+              type="submit"
+              class="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-4 py-2 text-xs font-bold text-white shadow-lg transition-all"
+            >
+              Direct Assign
+            </button>
           </form>
         </div>
 
-        <.panel title="Order history">
-          <:actions>
+        <%!-- Order History Section --%>
+        <div class="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 shadow-xl backdrop-blur-xl">
+          <div class="mb-6 flex items-center justify-between border-b border-slate-800 pb-4">
+            <div>
+              <h2 class="text-lg font-bold text-white">Order Audit History</h2>
+              <p class="text-xs text-slate-400">Historical delivery log and state transitions.</p>
+            </div>
             <form id="history-form" phx-change="filter_history">
-              <select name="status" class="select select-sm select-bordered">
-                <option value="all" selected={@history_status == :all}>All</option>
+              <select
+                name="status"
+                class="rounded-xl border border-slate-800 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none"
+              >
+                <option value="all" selected={@history_status == :all}>All Statuses</option>
                 <option value="pending" selected={@history_status == :pending}>Pending</option>
                 <option value="assigned" selected={@history_status == :assigned}>Assigned</option>
                 <option value="picked_up" selected={@history_status == :picked_up}>Picked up</option>
@@ -423,46 +681,76 @@ defmodule FleetPulseWeb.DispatchLive do
                 <option value="cancelled" selected={@history_status == :cancelled}>Cancelled</option>
               </select>
             </form>
-          </:actions>
+          </div>
 
-          <.table id="history" rows={@history}>
-            <:col :let={order} label="ID">{order.id}</:col>
-            <:col :let={order} label="Status"><.status_badge status={order.status} /></:col>
-            <:col :let={order} label="Driver">{order.driver_id || "—"}</:col>
-            <:col :let={order} label="Weight">{order.weight_kg} kg</:col>
-            <:col :let={order} label="Created">{when_at(order.inserted_at)}</:col>
-          </.table>
-        </.panel>
+          <div class="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-950/40">
+            <.table id="history" rows={@history}>
+              <:col :let={order} label="Order ID">
+                <span class="font-mono text-xs font-bold text-indigo-400">#{order.id}</span>
+              </:col>
+              <:col :let={order} label="Status"><.status_badge status={order.status} /></:col>
+              <:col :let={order} label="Driver">
+                <span class="font-mono text-xs text-slate-300">{if order.driver_id,
+                  do: "Driver ##{order.driver_id}",
+                  else: "—"}</span>
+              </:col>
+              <:col :let={order} label="Weight">
+                <span class="text-xs font-medium text-slate-200">{order.weight_kg} kg</span>
+              </:col>
+              <:col :let={order} label="Created At">
+                <span class="text-xs text-slate-400">{when_at(order.inserted_at)}</span>
+              </:col>
+            </.table>
+          </div>
+        </div>
 
-        <.panel
+        <%!-- Pending Drivers Approval Banner --%>
+        <div
           :if={length(@pending_approval) > 0}
-          title={"⚠️ Pending approval (#{length(@pending_approval)})"}
+          class="rounded-3xl border border-amber-500/30 bg-amber-500/5 p-6 shadow-xl backdrop-blur-xl"
         >
-          <.table id="pending-drivers" rows={@pending_approval}>
-            <:col :let={driver} label="Name">{driver.name}</:col>
-            <:col :let={driver} label="Phone">{driver.phone}</:col>
-            <:col :let={driver} label="Vehicle Plate">{driver.vehicle_plate}</:col>
-            <:col :let={driver} label="Capacity">{driver.capacity_kg} kg</:col>
-            <:col :let={driver} label="Actions">
-              <div class="flex gap-2">
-                <.button
-                  phx-click="approve_driver"
-                  phx-value-id={driver.id}
-                  class="btn btn-success btn-xs"
-                >
-                  Approve
-                </.button>
-                <.button
-                  phx-click="reject_driver"
-                  phx-value-id={driver.id}
-                  class="btn btn-error btn-xs"
-                >
-                  Reject
-                </.button>
-              </div>
-            </:col>
-          </.table>
-        </.panel>
+          <div class="mb-4 flex items-center justify-between border-b border-amber-500/20 pb-3">
+            <h2 class="text-base font-bold text-amber-300">
+              ⚠️ Drivers Pending Verification ({length(@pending_approval)})
+            </h2>
+            <span class="text-xs text-amber-400/80">Requires admin approval to access dispatch network</span>
+          </div>
+
+          <div class="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-950/60">
+            <.table id="pending-drivers" rows={@pending_approval}>
+              <:col :let={driver} label="Name">
+                <span class="text-xs font-bold text-white">{driver.name}</span>
+              </:col>
+              <:col :let={driver} label="Phone">
+                <span class="font-mono text-xs text-slate-300">{driver.phone}</span>
+              </:col>
+              <:col :let={driver} label="Plate">
+                <span class="font-mono text-xs text-slate-300">{driver.vehicle_plate}</span>
+              </:col>
+              <:col :let={driver} label="Capacity">
+                <span class="text-xs font-medium text-slate-200">{driver.capacity_kg} kg</span>
+              </:col>
+              <:col :let={driver} label="Actions">
+                <div class="flex items-center gap-2">
+                  <button
+                    phx-click="approve_driver"
+                    phx-value-id={driver.id}
+                    class="rounded-lg bg-emerald-600/80 hover:bg-emerald-500 px-3 py-1 text-xs font-bold text-white shadow-sm transition-all"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    phx-click="reject_driver"
+                    phx-value-id={driver.id}
+                    class="rounded-lg bg-rose-600/30 hover:bg-rose-600/50 border border-rose-500/30 px-3 py-1 text-xs font-bold text-rose-300 transition-all"
+                  >
+                    Reject
+                  </button>
+                </div>
+              </:col>
+            </.table>
+          </div>
+        </div>
       </main>
     </div>
     """

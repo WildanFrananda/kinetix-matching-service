@@ -63,10 +63,14 @@ defmodule FleetPulseWeb.Router do
     plug FleetPulseWeb.Plugs.RateLimit, bucket: :register
   end
 
-  # Other scopes may use custom stacks.
-  # scope "/api", FleetPulseWeb do
-  #   pipe_through :api
-  # end
+  scope "/api/v1", FleetPulseWeb.Api.V1, as: :api_v1 do
+    pipe_through :partner_api
+
+    get "/drivers", DriverController, :index
+    get "/drivers/nearby", DriverController, :nearby
+    get "/drivers/:id", DriverController, :show
+    get "/orders/:id", OrderController, :show
+  end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:fleet_pulse, :dev_routes) do

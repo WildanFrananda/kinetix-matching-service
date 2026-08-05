@@ -159,6 +159,25 @@ on both endpoints, returning `429 Too Many Requests` when exceeded.
 **Solution.** A periodic job that prunes pings older than a configurable
 retention window (e.g. 30 days), keeping the audit trail bounded.
 
+### 9.5. Merchant API & Real-Time WebSocket Integration — P0 (Next Feature)
+
+**Problem.** Currently, order creation is restricted to internal dispatchers via the Admin LiveView interface. External merchant applications cannot programmatically place delivery orders or track their active orders in real-time.
+
+**Solution.** Expose a dedicated Merchant API suite & Phoenix WebSocket Channel (`MerchantChannel`) to enable multi-tenant merchant applications to seamlessly integrate with FleetPulse:
+
+1. **Merchant Authentication & Schema Multi-Tenancy:**
+   - Extend `Order` schema to include `merchant_id` for strict multi-tenant isolation.
+   - Merchant authentication via API Key / Bearer tokens tied to specific merchant accounts.
+
+2. **Order Intake REST Endpoint (`POST /api/v1/merchant/orders`):**
+   - Accept order payload (pickup coords, dropoff coords, weight_kg, merchant_order_ref).
+   - Trigger atomic order creation & automatic dispatch evaluation (`FleetPulse.Dispatch.create_order/1`).
+
+3. **Real-Time Merchant Phoenix Channel (`merchant:orders:<merchant_id>`):**
+   - Establish persistent WebSockets for real-time bidirectional status updates.
+   - Stream live order status transitions (`pending` → `assigned` → `picked_up` → `delivered` / `cancelled`).
+   - Push driver telemetry updates (driver position & ETA) while an order is actively assigned to a merchant's package.
+
 ### Explicitly deferred (no concrete demand yet)
 
 - PostGIS polygon service zones (radius + haversine over ETS suffices today).
