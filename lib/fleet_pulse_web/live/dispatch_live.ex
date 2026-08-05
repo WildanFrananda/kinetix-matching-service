@@ -256,7 +256,7 @@ defmodule FleetPulseWeb.DispatchLive do
           <div class="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl backdrop-blur-xl transition-all duration-300 hover:border-cyan-500/40 hover:shadow-
     cyan-950/20">
             <div class="flex items-center justify-between text-slate-400">
-              <span class="text-xs font-semibold uppercase tracking-wider">Drivers Online</span>
+              <span class="text-xs font-semibold uppercase tracking-wider">Drivers online</span>
               <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-500/10 text-cyan-400">
                 ⚡
               </div>
@@ -307,7 +307,7 @@ defmodule FleetPulseWeb.DispatchLive do
           <div class="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl backdrop-blur-xl transition-all duration-300 hover:border-emerald-500/40 hover:shadow-
     emerald-950/20">
             <div class="flex items-center justify-between text-slate-400">
-              <span class="text-xs font-semibold uppercase tracking-wider">Delivered Today</span>
+              <span class="text-xs font-semibold uppercase tracking-wider">Delivered today</span>
               <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
                 ✅
               </div>
@@ -344,7 +344,7 @@ defmodule FleetPulseWeb.DispatchLive do
 
           export default {
             mounted() {
-              this.map = L.map(this.el).setView([-6.2088, 106.8456], 12)
+              this.map = L.map(this.el).setView([-6.3000, 106.8456], 12)
               this.markers = {}
 
               L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
@@ -408,7 +408,7 @@ defmodule FleetPulseWeb.DispatchLive do
               </p>
             </div>
             <span class="rounded-lg bg-indigo-500/10 border border-indigo-500/20 px-3 py-1 text-xs font-medium text-indigo-300">
-              {length(@orders)} Active Orders
+              {length(@orders)} Active orders
             </span>
           </div>
 
@@ -424,7 +424,7 @@ defmodule FleetPulseWeb.DispatchLive do
                 field={@order_form[:pickup_latitude]}
                 type="number"
                 step="any"
-                placeholder="-6.2000"
+                placeholder="-7.2088"
                 class="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white
     placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
               />
@@ -446,7 +446,7 @@ defmodule FleetPulseWeb.DispatchLive do
                 field={@order_form[:dropoff_latitude]}
                 type="number"
                 step="any"
-                placeholder="-6.2100"
+                placeholder="-7.2100"
                 class="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white
     placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
               />
