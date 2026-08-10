@@ -549,6 +549,11 @@ defmodule FleetPulseWeb.DispatchLive do
                 </div>
               </:col>
               <:col :let={driver} label="Status"><.status_badge status={driver.status} /></:col>
+              <:col :let={driver} label="Active Jobs">
+                <span class="rounded-full bg-indigo-500/10 border border-indigo-500/30 px-2 py-0.5 text-xs font-mono font-semibold text-indigo-300">
+                  {active_count_badge(driver)}
+                </span>
+              </:col>
               <:col :let={driver} label="Coordinates">
                 <span class="font-mono text-xs text-slate-300">{position(driver.coordinates)}</span>
               </:col>
@@ -602,12 +607,16 @@ defmodule FleetPulseWeb.DispatchLive do
               </div>
             </div>
             <div class="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
-              <div class="text-xs text-slate-400">Capacity</div>
+              <div class="text-xs text-slate-400">Payload Capacity</div>
               <div class="text-sm font-bold text-white mt-1">{@selected.record.capacity_kg} kg</div>
             </div>
             <div class="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
-              <div class="text-xs text-slate-400">Status</div>
-              <div class="mt-1"><.status_badge status={@selected.record.status} /></div>
+              <div class="text-xs text-slate-400">Queue Load</div>
+              <div class="text-sm font-mono font-bold text-indigo-300 mt-1">
+                {if @selected.state,
+                  do: "#{@selected.state.active_orders_count}/#{@selected.state.max_orders} Jobs",
+                  else: "0 Jobs"}
+              </div>
             </div>
             <div class="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
               <div class="text-xs text-slate-400">Current Position</div>
@@ -617,26 +626,31 @@ defmodule FleetPulseWeb.DispatchLive do
             </div>
           </div>
 
-          <div
-            :if={@selected.order}
-            class="rounded-2xl border border-indigo-500/30 bg-indigo-500/10 p-5 mb-4"
-          >
-            <div class="flex items-center justify-between">
-              <div>
-                <div class="text-xs font-bold uppercase tracking-wider text-indigo-400">
-                  Current Active Order
-                </div>
-                <div class="text-base font-bold text-white mt-0.5">Order ##{@selected.order.id}</div>
-              </div>
-              <.status_badge status={@selected.order.status} />
+          <%!-- Multi-Order Queue List --%>
+          <div :if={@selected.orders != []} class="space-y-3 mb-6">
+            <div class="text-xs font-bold uppercase tracking-wider text-indigo-400">
+              Active Assigned Orders ({length(@selected.orders)})
             </div>
-            <div class="mt-2 text-xs text-slate-300">
-              Package Weight: <span class="font-bold">{@selected.order.weight_kg} kg</span>
+            <div
+              :for={order <- @selected.orders}
+              class="flex items-center justify-between rounded-2xl border border-indigo-500/30 bg-indigo-500/10 p-4"
+            >
+              <div>
+                <div class="text-sm font-bold text-white">Order #{order.id}</div>
+                <div class="text-xs text-slate-300">
+                  Weight: <span class="font-bold">{order.weight_kg} kg</span>
+                </div>
+              </div>
+              <.status_badge status={order.status} />
             </div>
           </div>
 
           <form
-            :if={is_nil(@selected.order) and @selected.record.status == :online}
+            :if={
+              @selected.record.status == :online and
+                (@selected.state == nil or
+                   @selected.state.active_orders_count < @selected.state.max_orders)
+            }
             phx-submit="assign_to_driver"
             class="flex items-end gap-3 rounded-2xl border border-slate-800 bg-slate-950/60 p-4"
           >
@@ -824,13 +838,21 @@ defmodule FleetPulseWeb.DispatchLive do
         assign(socket, :selected, %{
           record: record,
           state: driver_state(driver_id),
-          order: Dispatch.active_order_for_driver(driver_id)
+          order: Dispatch.active_order_for_driver(driver_id),
+          orders: Dispatch.active_orders_for_driver(driver_id)
         })
 
       {:error, :not_found} ->
         put_flash(socket, :error, "Driver not found.")
     end
   end
+
+  @spec active_count_badge(DriverState.t()) :: String.t()
+  defp active_count_badge(%DriverState{active_orders_count: count, max_orders: max_orders}) do
+    "#{count}/#{max_orders} Jobs"
+  end
+
+  defp active_count_badge(_state), do: "0/1 Jobs"
 
   @spec driver_state(Types.id()) :: DriverState.t() | nil
   defp driver_state(driver_id) do
