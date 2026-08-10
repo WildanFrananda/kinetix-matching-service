@@ -7,6 +7,7 @@ defmodule FleetPulse.DispatchTest do
   alias FleetPulse.Dispatch.Events
   alias FleetPulse.Dispatch.Order
   alias FleetPulse.Tracking
+  alias FleetPulse.Tracking.DriverRegistry
   alias FleetPulse.Tracking.StateCache
 
   @pickup {-6.1754, 106.8272}
@@ -344,6 +345,42 @@ defmodule FleetPulse.DispatchTest do
 
       {:ok, second} = Dispatch.create_order(order_attrs())
       assert {:error, :unavailable} = Dispatch.assign_order_to_driver(second.id, driver.id)
+    end
+  end
+
+  describe "multi-order queue per driver" do
+    test "assigns multiple orders up to driver capacity limit (default 3)" do
+      driver = online_driver(1.0, 500)
+
+      {:ok, pid} = DriverRegistry.whereis(driver.id)
+      :sys.replace_state(pid, fn state -> %{state | max_orders: 3} end)
+
+      order1 = order!(%{weight_kg: 50})
+      order2 = order!(%{weight_kg: 50})
+      order3 = order!(%{weight_kg: 50})
+      order4 = order!(%{weight_kg: 50})
+
+      assert {:ok, _assigned1} = Dispatch.assign_order(order1.id)
+      assert {:ok, %{status: :online, active_orders_count: 1}} = Tracking.fetch_state(driver.id)
+
+      assert {:ok, _assigned2} = Dispatch.assign_order(order2.id)
+      assert {:ok, %{status: :online, active_orders_count: 2}} = Tracking.fetch_state(driver.id)
+
+      assert {:ok, _assigned3} = Dispatch.assign_order(order3.id)
+      assert {:ok, %{status: :busy, active_orders_count: 3}} = Tracking.fetch_state(driver.id)
+
+      assert {:error, :no_driver_available} = Dispatch.assign_order(order4.id)
+
+      active_orders = Dispatch.active_orders_for_driver(driver.id)
+      assert length(active_orders) == 3
+
+      assert {:ok, _picked} = Dispatch.mark_picked_up(order1.id, driver.id)
+      assert {:ok, _delivered} = Dispatch.mark_delivered(order1.id, driver.id)
+      assert {:ok, %{status: :online, active_orders_count: 2}} = Tracking.fetch_state(driver.id)
+
+      # Now 4th order can be assigned
+      assert {:ok, _assigned4} = Dispatch.assign_order(order4.id)
+      assert {:ok, %{status: :busy, active_orders_count: 3}} = Tracking.fetch_state(driver.id)
     end
   end
 end

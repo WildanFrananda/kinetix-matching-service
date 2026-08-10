@@ -20,6 +20,8 @@ defmodule FleetPulse.Tracking.DriverState do
   alias FleetPulse.Tracking.Telemetry
   alias FleetPulse.Types
 
+  @default_max_orders 1
+
   @typedoc """
   A driver's live state.
 
@@ -37,6 +39,8 @@ defmodule FleetPulse.Tracking.DriverState do
   @type t :: %__MODULE__{
           driver_id: Types.id(),
           capacity_kg: non_neg_integer(),
+          active_orders_count: non_neg_integer(),
+          max_orders: pos_integer(),
           status: Driver.status(),
           coordinates: Types.coordinates() | nil,
           speed_kmh: float() | nil,
@@ -54,6 +58,8 @@ defmodule FleetPulse.Tracking.DriverState do
     :recorded_at,
     :synced_at,
     capacity_kg: 0,
+    active_orders_count: 0,
+    max_orders: @default_max_orders,
     status: :offline
   ]
 
@@ -197,7 +203,9 @@ defmodule FleetPulse.Tracking.DriverState do
   end
 
   def handle_call(:claim, _from, %__MODULE__{status: :online} = state) do
-    claimed = commit(%{state | status: :busy})
+    new_count = state.active_orders_count + 1
+    new_status = if new_count >= state.max_orders, do: :busy, else: :online
+    claimed = commit(%{state | active_orders_count: new_count, status: new_status})
     {:reply, {:ok, claimed}, claimed}
   end
 
@@ -230,11 +238,12 @@ defmodule FleetPulse.Tracking.DriverState do
   end
 
   def handle_cast(:release, %__MODULE__{status: :busy} = state) do
-    {:noreply, commit(%{state | status: :online})}
-  end
+    new_count = max(0, state.active_orders_count - 1)
 
-  def handle_cast(:release, state) do
-    {:noreply, state}
+    new_status =
+      if new_count < state.max_orders and state.status == :busy, do: :online, else: state.status
+
+    {:noreply, commit(%{state | active_orders_count: new_count, status: new_status})}
   end
 
   @impl GenServer

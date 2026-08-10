@@ -121,6 +121,17 @@ defmodule FleetPulse.Dispatch do
   end
 
   @doc """
+  Lists all active assigned or picked up orders for a specific driver.
+  """
+  @spec active_orders_for_driver(Types.id()) :: [Order.t()]
+  def active_orders_for_driver(driver_id) do
+    Order
+    |> where([o], o.driver_id == ^driver_id and o.status in [:assigned, :picked_up])
+    |> order_by([o], desc: o.assigned_at)
+    |> Repo.all()
+  end
+
+  @doc """
   Assigns a pending order to the nearest eligible driver.
 
   Eligible means online, within `radius_km` of the pickup, and able to carry
