@@ -170,13 +170,22 @@ defmodule FleetPulse.DispatchTest do
   end
 
   describe "order lifecycle" do
-    test "advances assigned -> picked_up -> delivered and frees the driver" do
+    test "advances assigned -> picked_up -> delivered with POD photo and signature, freeing the driver" do
       driver = online_driver(0.5, 100)
       order = assigned_order!()
       assert {:ok, %{status: :busy}} = Tracking.fetch_state(driver.id)
 
       assert {:ok, %{status: :picked_up}} = Dispatch.mark_picked_up(order.id, driver.id)
-      assert {:ok, %{status: :delivered}} = Dispatch.mark_delivered(order.id, driver.id)
+
+      pod_payload = %{
+        "pod_photo_url" => "https://storage.luxe.id/pod/photo_123.jpg",
+        "pod_signature" => "data:image/svg+xml;base64,PHN2Zz4..."
+      }
+
+      assert {:ok, delivered_order} = Dispatch.mark_delivered(order.id, driver.id, pod_payload)
+      assert delivered_order.status == :delivered
+      assert delivered_order.pod_photo_url == "https://storage.luxe.id/pod/photo_123.jpg"
+      assert delivered_order.pod_signature == "data:image/svg+xml;base64,PHN2Zz4..."
 
       assert {:ok, %{status: :online}} = Tracking.fetch_state(driver.id)
     end

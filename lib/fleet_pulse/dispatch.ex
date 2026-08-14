@@ -184,10 +184,12 @@ defmodule FleetPulse.Dispatch do
 
   @doc """
   A driver marks its picked-up order as delivered, which frees the driver.
+  Accepts optional POD (Proof of Delivery) metadata map (photo URL, signature).
   """
-  @spec mark_delivered(Types.id(), Types.id()) :: {:ok, Order.t()} | {:error, transition_error()}
-  def mark_delivered(order_id, driver_id) do
-    transition_by_driver(order_id, driver_id, :delivered)
+  @spec mark_delivered(Types.id(), Types.id(), map()) ::
+          {:ok, Order.t()} | {:error, transition_error()}
+  def mark_delivered(order_id, driver_id, pod_attrs \\ %{}) do
+    transition_by_driver(order_id, driver_id, :delivered, pod_attrs)
   end
 
   @doc """
@@ -271,12 +273,12 @@ defmodule FleetPulse.Dispatch do
     error
   end
 
-  @spec transition_by_driver(Types.id(), Types.id(), Order.status()) ::
+  @spec transition_by_driver(Types.id(), Types.id(), Order.status(), map()) ::
           {:ok, Order.t()} | {:error, transition_error()}
-  defp transition_by_driver(order_id, driver_id, target) do
+  defp transition_by_driver(order_id, driver_id, target, pod_attrs \\ %{}) do
     with {:ok, order} <- fetch_order(order_id),
          :ok <- ensure_owner(order, driver_id) do
-      transition(order, target)
+      transition(order, target, pod_attrs)
     end
   end
 
@@ -284,10 +286,10 @@ defmodule FleetPulse.Dispatch do
   defp ensure_owner(%Order{driver_id: driver_id}, driver_id), do: :ok
   defp ensure_owner(%Order{}, _driver_id), do: {:error, :forbidden}
 
-  @spec transition(Order.t(), Order.status()) ::
+  @spec transition(Order.t(), Order.status(), map()) ::
           {:ok, Order.t()} | {:error, :invalid_transition}
-  defp transition(%Order{status: current} = order, target) do
-    apply_transition(legal?(current, target), order, target)
+  defp transition(%Order{status: current} = order, target, pod_attrs \\ %{}) do
+    apply_transition(legal?(current, target), order, target, pod_attrs)
   end
 
   @spec legal?(Order.status(), Order.status()) :: boolean()
@@ -295,13 +297,20 @@ defmodule FleetPulse.Dispatch do
     target in Map.get(@legal_transitions, current, [])
   end
 
-  @spec apply_transition(boolean(), Order.t(), Order.status()) ::
+  @spec apply_transition(boolean(), Order.t(), Order.status(), map()) ::
           {:ok, Order.t()} | {:error, :invalid_transition}
-  defp apply_transition(false, _order, _target), do: {:error, :invalid_transition}
+  defp apply_transition(false, _order, _target, _pod_attrs), do: {:error, :invalid_transition}
 
-  defp apply_transition(true, order, target) do
+  defp apply_transition(true, order, target, pod_attrs) do
+    photo = Map.get(pod_attrs, "pod_photo_url") || Map.get(pod_attrs, :pod_photo_url)
+    sig = Map.get(pod_attrs, "pod_signature") || Map.get(pod_attrs, :pod_signature)
+
+    changes = %{status: target}
+    changes = if photo, do: Map.put(changes, :pod_photo_url, photo), else: changes
+    changes = if sig, do: Map.put(changes, :pod_signature, sig), else: changes
+
     order
-    |> Ecto.Changeset.change(status: target)
+    |> Ecto.Changeset.change(changes)
     |> Repo.update()
     |> after_transition()
   end

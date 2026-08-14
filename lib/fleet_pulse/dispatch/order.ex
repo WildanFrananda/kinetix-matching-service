@@ -38,6 +38,8 @@ defmodule FleetPulse.Dispatch.Order do
           status: status() | nil,
           driver_id: Types.id() | nil,
           merchant_id: integer() | nil,
+          pod_photo_url: String.t() | nil,
+          pod_signature: String.t() | nil,
           driver: Driver.t() | Ecto.Association.NotLoaded.t() | nil,
           assigned_at: DateTime.t() | nil,
           inserted_at: DateTime.t() | nil,
@@ -65,6 +67,8 @@ defmodule FleetPulse.Dispatch.Order do
     field :status, Ecto.Enum, values: @statuses, default: :pending
     field :assigned_at, :utc_datetime_usec
     field :merchant_id, :integer
+    field :pod_photo_url, :string
+    field :pod_signature, :string
 
     belongs_to :driver, Driver
 

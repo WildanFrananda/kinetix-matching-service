@@ -104,8 +104,9 @@ defmodule FleetPulseWeb.DriverChannel do
     reply_transition(Dispatch.mark_picked_up(order_id, socket.assigns.driver_id), socket)
   end
 
-  def handle_in("delivered", %{"order_id" => order_id}, socket) when is_integer(order_id) do
-    reply_transition(Dispatch.mark_delivered(order_id, socket.assigns.driver_id), socket)
+  def handle_in("delivered", %{"order_id" => order_id} = payload, socket)
+      when is_integer(order_id) do
+    reply_transition(Dispatch.mark_delivered(order_id, socket.assigns.driver_id, payload), socket)
   end
 
   def handle_in(_event, _params, socket) do
