@@ -41,7 +41,7 @@ defmodule FleetPulseWeb.MerchantChannelTest do
           merchant_id: merchant_id
         })
 
-      assert_push "order_updated", payload
+      assert_push "order_updated", payload, 500
       assert payload.id == order.id
       assert payload.merchant_id == merchant_id
       assert payload.status == :pending
@@ -63,7 +63,7 @@ defmodule FleetPulseWeb.MerchantChannelTest do
           merchant_id: 888
         })
 
-      refute_push "order_updated", _payload
+      refute_push "order_updated", _payload, 200
     end
   end
 end

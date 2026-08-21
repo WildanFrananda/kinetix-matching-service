@@ -1,29 +1,17 @@
 defmodule FleetPulse.Tracking.Driver do
   @moduledoc """
-  Ecto schema for fleet drivers — a Pure Data Object (PODO).
+  Pure Ecto Schema and Changeset functions for a Courier / Driver.
 
-  This module has NO behavior: no `save/0`, `update/0`, or queries.
-  All persistence resides in `FleetPulse.Tracking` (context). Here
-  there is only the data form + incoming attribute validation rules.
+  Encapsulates data shape, validations, status transitions, and
+  JWT / gRPC identity verification.
   """
 
   use Ecto.Schema
-
   import Ecto.Changeset
-
   alias FleetPulse.Types
 
-  @typedoc "Driver availability status. Mirror of `@statuses` — keep them in sync."
   @type status :: Types.driver_status()
 
-  @typedoc """
-  Persist driver record.
-
-  All fields are `| nil` because `%Driver{}` is plain (before `cast/4` or load
-  from the DB) contains `nil` everywhere. Write `id:Types.id()` without `| nil`
-  is the most common typespec lie in Ecto projects — Direct Dialyzer
-  reject it once you create a manual struct.
-  """
   @type t :: %__MODULE__{
           __meta__: Ecto.Schema.Metadata.t(),
           id: Types.id() | nil,
@@ -39,7 +27,6 @@ defmodule FleetPulse.Tracking.Driver do
           updated_at: DateTime.t() | nil
         }
 
-  @typedoc "A changeset whose data is guaranteed to be of type `t()`."
   @type changeset :: Ecto.Changeset.t(t())
 
   @statuses [:online, :busy, :offline]
@@ -61,9 +48,6 @@ defmodule FleetPulse.Tracking.Driver do
 
   @max_password_bytes 72
 
-  @doc """
-  A list of valid states — a single source for validation, seeds, and UI choices.
-  """
   @spec statuses() :: [status()]
   def statuses, do: @statuses
 
@@ -86,7 +70,6 @@ defmodule FleetPulse.Tracking.Driver do
 
   @doc """
   Changeset for new driver registrations.
-  Enforces `active: false` (pending approval) and hashes the virtual password.
   """
   @spec registration_changeset(t(), map()) :: changeset()
   def registration_changeset(%__MODULE__{} = driver, attrs) when is_map(attrs) do
@@ -100,9 +83,6 @@ defmodule FleetPulse.Tracking.Driver do
 
   @doc """
   Changeset for setting or changing a driver's login password.
-
-  The plaintext lives only in the virtual `:password` field; it is hashed into
-  `:hashed_password` and dropped before persistence.
   """
   @spec password_changeset(t(), map()) :: changeset()
   def password_changeset(%__MODULE__{} = driver, attrs) do
@@ -125,10 +105,7 @@ defmodule FleetPulse.Tracking.Driver do
   defp put_password_hash(changeset), do: changeset
 
   @doc """
-  Verifies a plaintext password against a driver's stored hash.
-
-  Runs a dummy hash when there is no stored password, so a driver who was never
-  given credentials is indistinguishable by timing from a wrong password.
+  Verifies driver identity against kinetix-identity-service or local BCrypt fallback.
   """
   @spec valid_password?(t(), String.t()) :: boolean()
   def valid_password?(%__MODULE__{hashed_password: hashed}, password)
@@ -143,11 +120,6 @@ defmodule FleetPulse.Tracking.Driver do
 
   @doc """
   Narrow changeset for state transitions only.
-
-  Used by `Tracking.DriverState` (Stage 2) when flushing state from memory.
-  Intentionally accepts `map()` instead of `status()`, so that invalid values ​​result in an
-  invalid changeset — not a `FunctionClauseError`. See CLAUDE.md §4: do not
-  raise for normal control flow.
   """
   @spec status_changeset(t(), map()) :: changeset()
   def status_changeset(%__MODULE__{} = driver, attrs) do
