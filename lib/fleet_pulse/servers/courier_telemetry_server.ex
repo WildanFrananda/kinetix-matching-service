@@ -24,8 +24,8 @@ defmodule FleetPulse.CourierTelemetryServer do
           success: true,
           dispatch_ref: dispatch_ref,
           assigned_driver_name: driver.name,
-          assigned_driver_phone: driver.phone || "081299887766",
-          vehicle: driver.vehicle_plate || "B 1234 KIN",
+          assigned_driver_phone: driver.phone || "",
+          vehicle: driver.vehicle_plate || "",
           eta_minutes: 10
         }
 
@@ -37,8 +37,8 @@ defmodule FleetPulse.CourierTelemetryServer do
               success: true,
               dispatch_ref: "DISP-ALT-" <> Integer.to_string(request.order_id),
               assigned_driver_name: active_driver.name,
-              assigned_driver_phone: active_driver.phone || "081299887766",
-              vehicle: active_driver.vehicle_plate || "B 5678 KIN",
+              assigned_driver_phone: active_driver.phone || "",
+              vehicle: active_driver.vehicle_plate || "",
               eta_minutes: 15
             }
 
