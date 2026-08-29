@@ -5,4 +5,5 @@ defmodule FleetPulse.GrpcEndpoint do
   use GRPC.Endpoint
 
   run FleetPulse.CourierTelemetryServer
+  run FleetPulse.Servers.ShippingServer
 end

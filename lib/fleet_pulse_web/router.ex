@@ -71,6 +71,7 @@ defmodule FleetPulseWeb.Router do
     get "/drivers/:id", DriverController, :show
     get "/orders/:id", OrderController, :show
     post "/merchant/orders", MerchantOrderController, :create
+    post "/shipping/options", ShippingController, :options
   end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
