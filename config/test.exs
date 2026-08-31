@@ -17,7 +17,7 @@ config :fleet_pulse, FleetPulse.Repo,
 # you can enable the server option below.
 config :fleet_pulse, FleetPulseWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
-  secret_key_base: "Miw+jZ/kqU05GjgVFl7n5cxegNP4xRAudXsH6f4O0SwRurtpNY82mGIZwR4qxGCC",
+  secret_key_base: "3t34HPLNM7M422WXcDA8ko+1LLrSi4+7oOL86vUy/EjlgGn1n54F1WXG1QanySeg",
   server: false
 
 # In test we don't send emails

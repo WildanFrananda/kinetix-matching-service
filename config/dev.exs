@@ -23,7 +23,7 @@ config :fleet_pulse, FleetPulseWeb.Endpoint,
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
-  secret_key_base: "HweYOcXHp2TIbGltR31kAn9tIjV1/v43r+bS2VKztMXUBQSmIjq9GCx5TkgbzF04",
+  secret_key_base: "KjOup/MMXGpu+FFBBVid6tKc70DOQGTHvB+Vb3RQlj05hy9IGLyknenVJpAUQqTa",
   watchers: [
     esbuild: {Esbuild, :install_and_run, [:fleet_pulse, ~w(--sourcemap=inline --watch)]},
     tailwind: {Tailwind, :install_and_run, [:fleet_pulse, ~w(--watch)]}
