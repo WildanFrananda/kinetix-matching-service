@@ -21,14 +21,13 @@ ARG ELIXIR_VERSION=1.20.2
 ARG OTP_VERSION=29.0.3
 ARG DEBIAN_VERSION=trixie-20260713-slim
 
-ARG BUILDER_IMAGE="docker.io/hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION}"
-ARG RUNNER_IMAGE="docker.io/debian:${DEBIAN_VERSION}"
+ARG BUILDER_IMAGE="docker.io/hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION}@sha256:6fcd8ea864221b960c1ec418e3b10fa488298ff9e70c9e0f3db18070e610fb8a"
+ARG RUNNER_IMAGE="docker.io/debian:${DEBIAN_VERSION}@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd"
 
 FROM ${BUILDER_IMAGE} AS builder
 
-# install build dependencies
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends build-essential git \
+  && apt-get install -y --no-install-recommends build-essential git nodejs npm \
   && rm -rf /var/lib/apt/lists/*
 
 # prepare build dir
@@ -43,12 +42,20 @@ ENV MIX_ENV="prod"
 
 # install mix dependencies
 COPY mix.exs mix.lock ./
+
+RUN set -eu; \
+    lock="$(grep '"daisyui"' mix.lock)"; \
+    sha="$(printf '%s' "$lock" | sed -n 's/.*daisyui\.git", "\([0-9a-f]\{40\}\)".*/\1/p')"; \
+    tag="$(printf '%s' "$lock" | sed -n 's/.*tag: "\([^"]*\)".*/\1/p')"; \
+    test -n "$sha" && test -n "$tag" || { echo "could not read the daisyui tag/commit from mix.lock"; exit 1; }; \
+    git clone --depth 1 --branch "$tag" --quiet https://github.com/saadeghi/daisyui.git deps/daisyui; \
+    got="$(git -C deps/daisyui rev-parse HEAD)"; \
+    test "$got" = "$sha" || { echo "tag $tag resolves to $got, but mix.lock pins $sha"; exit 1; }; \
+    test -f deps/daisyui/packages/bundle/daisyui.js
+
 RUN mix deps.get --only $MIX_ENV
 RUN mkdir config
 
-# copy compile-time config files before we compile dependencies
-# to ensure any relevant config change will trigger the dependencies
-# to be re-compiled.
 COPY config/config.exs config/${MIX_ENV}.exs config/
 RUN mix deps.compile
 
@@ -62,6 +69,8 @@ COPY lib lib
 RUN mix compile
 
 COPY assets assets
+
+RUN npm ci --prefix assets
 
 # compile assets
 RUN mix assets.deploy
@@ -98,10 +107,5 @@ ENV MIX_ENV="prod"
 COPY --from=builder --chown=nobody:root /app/_build/${MIX_ENV}/rel/fleet_pulse ./
 
 USER nobody
-
-# If using an environment that doesn't automatically reap zombie processes, it is
-# advised to add an init process such as tini via `apt-get install`
-# above and adding an entrypoint. See https://github.com/krallin/tini for details
-# ENTRYPOINT ["/tini", "--"]
 
 CMD ["/app/bin/server"]
