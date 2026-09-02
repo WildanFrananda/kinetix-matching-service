@@ -4,7 +4,7 @@ defmodule FleetPulse.Accounts.AdminTest do
   alias FleetPulse.Accounts.Admin
 
   defp changeset(overrides \\ %{}) do
-    attrs = Map.merge(%{email: "ADMIN@Fleet.com", password: "supersecret123"}, overrides)
+    attrs = Map.merge(%{email: "ADMIN@Fleet.com", password: "fixture-only-never-a-real-credential"}, overrides)
     Admin.registration_changeset(%Admin{}, attrs)
   end
 
@@ -21,7 +21,7 @@ defmodule FleetPulse.Accounts.AdminTest do
 
     assert is_binary(changes.hashed_password)
     refute Map.has_key?(changes, :password)
-    refute changes.hashed_password == "supersecret123"
+    refute changes.hashed_password == "fixture-only-never-a-real-credential"
   end
 
   test "requires an email that looks like an email" do
@@ -41,9 +41,9 @@ defmodule FleetPulse.Accounts.AdminTest do
 
   describe "valid_password?/2" do
     test "is true for the right password, false for the wrong one" do
-      admin = %Admin{hashed_password: Bcrypt.hash_pwd_salt("supersecret123")}
+      admin = %Admin{hashed_password: Bcrypt.hash_pwd_salt("fixture-only-never-a-real-credential")}
 
-      assert Admin.valid_password?(admin, "supersecret123")
+      assert Admin.valid_password?(admin, "fixture-only-never-a-real-credential")
       refute Admin.valid_password?(admin, "wrong")
     end
 

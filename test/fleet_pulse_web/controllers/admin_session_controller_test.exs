@@ -17,7 +17,7 @@ defmodule FleetPulseWeb.AdminSessionControllerTest do
     test "logs in with valid credentials", %{conn: conn, admin: admin} do
       conn =
         post(conn, ~p"/admin/log_in", %{
-          "admin" => %{"email" => admin.email, "password" => "supersecret123"}
+          "admin" => %{"email" => admin.email, "password" => "fixture-only-never-a-real-credential"}
         })
 
       assert get_session(conn, "admin_id") == admin.id

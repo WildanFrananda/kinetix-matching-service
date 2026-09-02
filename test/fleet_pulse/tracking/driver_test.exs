@@ -16,9 +16,9 @@ defmodule FleetPulse.Tracking.DriverTest do
 
   describe "valid_password?/2" do
     test "true for the right password, false for the wrong one" do
-      driver = %Driver{hashed_password: Bcrypt.hash_pwd_salt("supersecret123")}
+      driver = %Driver{hashed_password: Bcrypt.hash_pwd_salt("fixture-only-never-a-real-credential")}
 
-      assert Driver.valid_password?(driver, "supersecret123")
+      assert Driver.valid_password?(driver, "fixture-only-never-a-real-credential")
       refute Driver.valid_password?(driver, "nope")
     end
 

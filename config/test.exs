@@ -6,10 +6,10 @@ import Config
 # to provide built-in test partitioning in CI environment.
 # Run `mix help test` for more information.
 config :fleet_pulse, FleetPulse.Repo,
-  username: "postgres",
-  password: "postgres",
-  hostname: "localhost",
-  database: "fleet_pulse_test#{System.get_env("MIX_TEST_PARTITION")}",
+  username: System.fetch_env!("DB_USERNAME"),
+  password: System.fetch_env!("DB_PASSWORD"),
+  hostname: System.get_env("DB_HOST") || "localhost",
+  database: (System.get_env("TEST_DB_NAME") || "kinetix_matching_test") <> (System.get_env("MIX_TEST_PARTITION") || ""),
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: System.schedulers_online() * 2
 

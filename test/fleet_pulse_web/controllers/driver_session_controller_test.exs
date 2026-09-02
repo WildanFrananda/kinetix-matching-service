@@ -8,12 +8,12 @@ defmodule FleetPulseWeb.DriverSessionControllerTest do
 
   setup do
     driver = driver_fixture()
-    {:ok, driver} = Tracking.set_driver_password(driver, "supersecret123")
+    {:ok, driver} = Tracking.set_driver_password(driver, "fixture-only-never-a-real-credential")
     %{driver: driver}
   end
 
   test "issues a token that identifies the driver", %{conn: conn, driver: driver} do
-    conn = post(conn, ~p"/driver/session", %{phone: driver.phone, password: "supersecret123"})
+    conn = post(conn, ~p"/driver/session", %{phone: driver.phone, password: "fixture-only-never-a-real-credential"})
     body = json_response(conn, 201)
 
     assert body["driver_id"] == driver.id
@@ -28,7 +28,7 @@ defmodule FleetPulseWeb.DriverSessionControllerTest do
   end
 
   test "rejects an unknown phone", %{conn: conn} do
-    conn = post(conn, ~p"/driver/session", %{phone: "089999999999", password: "supersecret123"})
+    conn = post(conn, ~p"/driver/session", %{phone: "089999999999", password: "fixture-only-never-a-real-credential"})
     assert json_response(conn, 401)["error"] == "invalid_credentials"
   end
 

@@ -6,7 +6,7 @@ defmodule FleetPulse.AccountsTest do
   defp admin_fixture(overrides) do
     attrs =
       Map.merge(
-        %{email: "op#{System.unique_integer([:positive])}@fleet.com", password: "supersecret123"},
+        %{email: "op#{System.unique_integer([:positive])}@fleet.com", password: "fixture-only-never-a-real-credential"},
         overrides
       )
 
@@ -17,7 +17,7 @@ defmodule FleetPulse.AccountsTest do
   describe "create_admin/1" do
     test "persists an admin with a hashed password" do
       assert {:ok, admin} =
-               Accounts.create_admin(%{email: "a@fleet.com", password: "supersecret123"})
+               Accounts.create_admin(%{email: "a@fleet.com", password: "fixture-only-never-a-real-credential"})
 
       assert admin.email == "a@fleet.com"
       assert is_binary(admin.hashed_password)
@@ -27,7 +27,7 @@ defmodule FleetPulse.AccountsTest do
       _first = admin_fixture(%{email: "dup@fleet.com"})
 
       assert {:error, changeset} =
-               Accounts.create_admin(%{email: "dup@fleet.com", password: "supersecret123"})
+               Accounts.create_admin(%{email: "dup@fleet.com", password: "fixture-only-never-a-real-credential"})
 
       assert %{email: ["has already been taken"]} = errors_on(changeset)
     end
@@ -37,7 +37,7 @@ defmodule FleetPulse.AccountsTest do
     test "returns the admin for correct credentials, case-insensitively" do
       admin = admin_fixture(%{email: "op@fleet.com"})
 
-      assert {:ok, found} = Accounts.authenticate_admin("OP@fleet.com", "supersecret123")
+      assert {:ok, found} = Accounts.authenticate_admin("OP@fleet.com", "fixture-only-never-a-real-credential")
       assert found.id == admin.id
     end
 
@@ -50,7 +50,7 @@ defmodule FleetPulse.AccountsTest do
 
     test "rejects an unknown email" do
       assert {:error, :invalid_credentials} =
-               Accounts.authenticate_admin("ghost@fleet.com", "supersecret123")
+               Accounts.authenticate_admin("ghost@fleet.com", "fixture-only-never-a-real-credential")
     end
   end
 end

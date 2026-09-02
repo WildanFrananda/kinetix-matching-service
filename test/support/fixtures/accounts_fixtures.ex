@@ -18,7 +18,7 @@ defmodule FleetPulse.AccountsFixtures do
     Map.merge(
       %{
         email: "admin#{System.unique_integer([:positive])}@fleet.com",
-        password: "supersecret123"
+        password: "fixture-only-never-a-real-credential"
       },
       overrides
     )
