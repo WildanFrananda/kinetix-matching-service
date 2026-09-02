@@ -35,9 +35,17 @@ defmodule FleetPulse.Tracking do
 
     * `:status` — which availability to accept, or `:any`. Defaults to
       `:online`, because dispatch wants drivers who can take work.
+    * `:min_capacity_kg` — reject drivers that cannot carry this load.
+      Defaults to `0`, which accepts everyone.
     * `:limit` — keep only the N nearest. Defaults to no limit.
   """
-  @type nearby_opts :: [status: Driver.status() | :any, limit: pos_integer()]
+  @type nearby_opts :: [
+          status: Driver.status() | :any,
+          min_capacity_kg: non_neg_integer(),
+          limit: pos_integer()
+        ]
+
+  @typep filters :: %{status: Driver.status() | :any, min_capacity_kg: non_neg_integer()}
 
   @spec create_driver(map()) :: {:ok, Driver.t()} | {:error, Driver.changeset()}
   def create_driver(attrs) do
@@ -108,11 +116,15 @@ defmodule FleetPulse.Tracking do
   """
   @spec nearby(Types.coordinates(), float(), nearby_opts()) :: [nearby_driver()]
   def nearby(coordinates, radius_km, opts \\ []) do
-    status = Keyword.get(opts, :status, :online)
+    filters = %{
+      status: Keyword.get(opts, :status, :online),
+      min_capacity_kg: Keyword.get(opts, :min_capacity_kg, 0)
+    }
+
     box = Geo.bounding_box(coordinates, radius_km)
 
     StateCache.all()
-    |> Enum.filter(&candidate?(&1, status, box))
+    |> Enum.filter(&candidate?(&1, filters, box))
     |> Enum.map(&{&1, Geo.distance_km(coordinates, &1.coordinates)})
     |> Enum.filter(fn {_state, distance} -> distance <= radius_km end)
     |> Enum.sort_by(fn {_state, distance} -> distance end)
@@ -138,6 +150,92 @@ defmodule FleetPulse.Tracking do
     end
   end
 
+  @doc """
+  Authenticates a driver by phone and password for token issuance.
+
+  Always spends one bcrypt verification whether or not the phone exists, so an
+  attacker cannot enumerate valid phone numbers by response time.
+  """
+  @spec authenticate_driver(String.t(), String.t()) ::
+          {:ok, Driver.t()} | {:error, :invalid_credentials | :pending_approval}
+  def authenticate_driver(phone, password) when is_binary(phone) and is_binary(password) do
+    Driver
+    |> Repo.get_by(phone: phone)
+    |> verify_driver(password)
+  end
+
+  @doc """
+  Sets or replaces a driver's login password (operator action).
+  """
+  @spec set_driver_password(Driver.t(), String.t()) ::
+          {:ok, Driver.t()} | {:error, Driver.changeset()}
+  def set_driver_password(%Driver{} = driver, password) do
+    driver
+    |> Driver.password_changeset(%{password: password})
+    |> Repo.update()
+  end
+
+  @doc """
+  Registers a new driver with `active: false` (pending admin approval).
+  """
+  @spec register_driver(map()) :: {:ok, Driver.t()} | {:error, Driver.changeset()}
+  def register_driver(attrs) when is_map(attrs) do
+    %Driver{}
+    |> Driver.registration_changeset(attrs)
+    |> Repo.insert()
+  end
+
+  @doc """
+  Lists all drivers waiting for admin approval.
+  """
+  @spec list_pending_drivers() :: [Driver.t()]
+  def list_pending_drivers do
+    Driver
+    |> where([d], d.active == false)
+    |> order_by([d], asc: d.inserted_at)
+    |> Repo.all()
+  end
+
+  @doc """
+  Approves a pending driver account.
+  """
+  @spec approve_driver(Types.id()) ::
+          {:ok, Driver.t()} | {:error, :not_found | Driver.changeset()}
+  def approve_driver(driver_id) do
+    with {:ok, driver} <- fetch_driver(driver_id) do
+      driver
+      |> Driver.changeset(%{active: true})
+      |> Repo.update()
+    end
+  end
+
+  @doc """
+  Rejects and removes a pending driver registration.
+  """
+  @spec reject_driver(Types.id()) :: {:ok, Driver.t()} | {:error, :not_found | Ecto.Changeset.t()}
+  def reject_driver(driver_id) do
+    with {:ok, driver} <- fetch_driver(driver_id) do
+      Repo.delete(driver)
+    end
+  end
+
+  @spec verify_driver(Driver.t() | nil, String.t()) ::
+          {:ok, Driver.t()} | {:error, :invalid_credentials | :pending_approval}
+  defp verify_driver(%Driver{} = driver, password) do
+    authorise_driver(Driver.valid_password?(driver, password), driver)
+  end
+
+  defp verify_driver(nil, _password) do
+    Bcrypt.no_user_verify()
+    {:error, :invalid_credentials}
+  end
+
+  @spec authorise_driver(boolean(), Driver.t()) ::
+          {:ok, Driver.t()} | {:error, :invalid_credentials | :pending_approval}
+  defp authorise_driver(false, _driver), do: {:error, :invalid_credentials}
+  defp authorise_driver(true, %Driver{active: true} = driver), do: {:ok, driver}
+  defp authorise_driver(true, %Driver{}), do: {:error, :pending_approval}
+
   @spec persist_status(Driver.t(), Driver.status()) ::
           {:ok, Driver.t()} | {:error, Driver.changeset()}
   defp persist_status(driver, status) do
@@ -159,10 +257,13 @@ defmodule FleetPulse.Tracking do
   def unsubscribe_driver(driver_id), do: Events.unsubscribe_driver(driver_id)
 
   @spec candidate?(DriverState.t(), Driver.status() | :any, Geo.box()) :: boolean()
-  defp candidate?(%DriverState{coordinates: nil}, _status, _box), do: false
+  @spec candidate?(DriverState.t(), filters(), Geo.box()) :: boolean()
+  defp candidate?(%DriverState{coordinates: nil}, _filters, _box), do: false
 
-  defp candidate?(%DriverState{coordinates: coordinates, status: actual}, wanted, box) do
-    status_matches?(actual, wanted) and Geo.within_box?(coordinates, box)
+  defp candidate?(%DriverState{} = state, filters, box) do
+    status_matches?(state.status, filters.status) and
+      state.capacity_kg >= filters.min_capacity_kg and
+      Geo.within_box?(state.coordinates, box)
   end
 
   @spec status_matches?(Driver.status(), Driver.status() | :any) :: boolean()

@@ -16,7 +16,11 @@ defmodule FleetPulse.Tracking.Supervisor do
   alias FleetPulse.Tracking.DriverSupervisor
   alias FleetPulse.Tracking.IdleReaper
   alias FleetPulse.Tracking.PersistenceBatcher
+  alias FleetPulse.Tracking.PingRetention
   alias FleetPulse.Tracking.StateCache
+
+  @typedoc "Children whose presence is decided by application config."
+  @type optional_child :: PersistenceBatcher | IdleReaper | PingRetention
 
   @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts) do
@@ -31,12 +35,9 @@ defmodule FleetPulse.Tracking.Supervisor do
     Supervisor.init(children, strategy: :one_for_one, max_restarts: 10, max_seconds: 60)
   end
 
-  @typedoc "Children whose presence is decided by application config."
-  @type optional_child :: PersistenceBatcher | IdleReaper
-
   @spec optional_children() :: [optional_child()]
   defp optional_children do
-    enabled(PersistenceBatcher) ++ enabled(IdleReaper)
+    enabled(PersistenceBatcher) ++ enabled(IdleReaper) ++ enabled(PingRetention)
   end
 
   @spec enabled(optional_child()) :: [optional_child()]

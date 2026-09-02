@@ -1,0 +1,395 @@
+defmodule FleetPulse.DispatchTest do
+  use FleetPulse.DataCase, async: false
+
+  import FleetPulse.TrackingFixtures
+
+  alias FleetPulse.Dispatch
+  alias FleetPulse.Dispatch.Events
+  alias FleetPulse.Dispatch.Order
+  alias FleetPulse.Tracking
+  alias FleetPulse.Tracking.DriverRegistry
+  alias FleetPulse.Tracking.StateCache
+
+  @pickup {-6.1754, 106.8272}
+
+  setup do
+    Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
+    :ok
+  end
+
+  defp north({lat, lng}, km), do: {lat + km / 111.19492664455873, lng}
+
+  defp online_driver(distance_km, capacity_kg) do
+    {lat, lng} = north(@pickup, distance_km)
+    driver = driver_fixture(%{capacity_kg: capacity_kg})
+    on_exit(fn -> cleanup(driver.id) end)
+
+    {:ok, _pid} = Tracking.start_tracking(driver.id)
+    {:ok, _driver} = Tracking.set_status(driver.id, :online)
+    :ok = Tracking.track_location(driver.id, telemetry_attrs(%{latitude: lat, longitude: lng}))
+    {:ok, _state} = Tracking.fetch_state(driver.id)
+
+    driver
+  end
+
+  defp cleanup(driver_id) do
+    _ = Tracking.stop_tracking(driver_id)
+    _ = StateCache.delete(driver_id)
+    :ok
+  end
+
+  defp order!(overrides \\ %{}) do
+    {:ok, order} = Dispatch.create_order(order_attrs(overrides))
+    order
+  end
+
+  defp assigned_order! do
+    {:ok, order} = Dispatch.assign_order(order!().id)
+    order
+  end
+
+  defp order_attrs(overrides \\ %{}) do
+    Map.merge(
+      %{
+        pickup_latitude: elem(@pickup, 0),
+        pickup_longitude: elem(@pickup, 1),
+        dropoff_latitude: -6.9,
+        dropoff_longitude: 107.6,
+        weight_kg: 100
+      },
+      overrides
+    )
+  end
+
+  describe "assign_order/2" do
+    test "assigns the nearest eligible driver and marks it busy" do
+      _far = online_driver(2.0, 100)
+      near = online_driver(0.5, 100)
+
+      order = order!()
+
+      assert {:ok, assigned} = Dispatch.assign_order(order.id)
+      assert assigned.status == :assigned
+      assert assigned.driver_id == near.id
+      assert assigned.assigned_at != nil
+
+      assert {:ok, %{status: :busy}} = Tracking.fetch_state(near.id)
+    end
+
+    test "skips drivers that cannot carry the load" do
+      _small = online_driver(0.5, 50)
+      big = online_driver(2.0, 500)
+
+      assert {:ok, assigned} = Dispatch.assign_order(order!(%{weight_kg: 200}).id)
+      assert assigned.driver_id == big.id
+    end
+
+    test "fails when no driver is in range" do
+      _far = online_driver(50.0, 100)
+
+      assert {:error, :no_driver_available} = Dispatch.assign_order(order!().id)
+    end
+
+    test "refuses to assign an order that is not pending" do
+      online_driver(0.5, 100)
+      order = order!()
+      {:ok, _} = Dispatch.assign_order(order.id)
+
+      assert {:error, :already_assigned} = Dispatch.assign_order(order.id)
+    end
+
+    test "reports an order that does not exist" do
+      assert {:error, :not_found} = Dispatch.assign_order(999_999_999)
+    end
+
+    test "does not claim a driver when assignment finds none" do
+      near = online_driver(0.5, 50)
+      assert {:error, :no_driver_available} = Dispatch.assign_order(order!(%{weight_kg: 500}).id)
+
+      assert {:ok, %{status: :online}} = Tracking.fetch_state(near.id)
+    end
+
+    test "broadcasts the assignment on the driver's dispatch topic" do
+      driver = online_driver(0.5, 100)
+      :ok = Events.subscribe_driver(driver.id)
+
+      order = order!()
+      assert {:ok, _assigned} = Dispatch.assign_order(order.id)
+
+      assert_receive {:order_assigned, %Order{id: id, driver_id: assigned_to}}
+      assert id == order.id
+      assert assigned_to == driver.id
+    end
+  end
+
+  describe "concurrent assignment" do
+    test "two orders racing for one driver get different drivers" do
+      d1 = online_driver(0.5, 100)
+      d2 = online_driver(0.5, 100)
+
+      orders = [order!(), order!()]
+
+      results =
+        orders
+        |> Task.async_stream(fn order -> Dispatch.assign_order(order.id) end,
+          max_concurrency: 2,
+          timeout: 5_000
+        )
+        |> Enum.map(fn {:ok, result} -> result end)
+
+      assert Enum.all?(results, &match?({:ok, _}, &1))
+
+      assigned_ids = Enum.map(results, fn {:ok, order} -> order.driver_id end)
+
+      assert Enum.sort(assigned_ids) == Enum.sort([d1.id, d2.id])
+    end
+
+    test "many claims on ONE driver yield exactly one winner" do
+      driver = online_driver(0.5, 100)
+
+      orders = for _ <- 1..20, do: order!()
+
+      results =
+        orders
+        |> Task.async_stream(fn order -> Dispatch.assign_order(order.id) end,
+          max_concurrency: 20,
+          timeout: 5_000
+        )
+        |> Enum.map(fn {:ok, result} -> result end)
+
+      winners = Enum.filter(results, &match?({:ok, _}, &1))
+      losers = Enum.filter(results, &match?({:error, :no_driver_available}, &1))
+
+      assert length(winners) == 1
+      assert length(losers) == 19
+
+      assert [{:ok, won}] = winners
+      assert won.driver_id == driver.id
+      assert {:ok, %{status: :busy}} = Tracking.fetch_state(driver.id)
+    end
+  end
+
+  describe "order lifecycle" do
+    test "advances assigned -> picked_up -> delivered with POD photo and signature, freeing the driver" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      assert {:ok, %{status: :busy}} = Tracking.fetch_state(driver.id)
+
+      assert {:ok, %{status: :picked_up}} = Dispatch.mark_picked_up(order.id, driver.id)
+
+      pod_payload = %{
+        "pod_photo_url" => "https://storage.luxe.id/pod/photo_123.jpg",
+        "pod_signature" => "data:image/svg+xml;base64,PHN2Zz4..."
+      }
+
+      assert {:ok, delivered_order} = Dispatch.mark_delivered(order.id, driver.id, pod_payload)
+      assert delivered_order.status == :delivered
+      assert delivered_order.pod_photo_url == "https://storage.luxe.id/pod/photo_123.jpg"
+      assert delivered_order.pod_signature == "data:image/svg+xml;base64,PHN2Zz4..."
+
+      assert {:ok, %{status: :online}} = Tracking.fetch_state(driver.id)
+    end
+
+    test "refuses a pickup by a driver who does not own the order" do
+      owner = online_driver(0.5, 100)
+      intruder = online_driver(2.0, 100)
+
+      {:ok, order} = Dispatch.assign_order(order!().id)
+      assert order.driver_id == owner.id, "expected the nearer driver to be assigned"
+
+      assert {:error, :forbidden} = Dispatch.mark_picked_up(order.id, intruder.id)
+    end
+
+    test "refuses delivery before pickup" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+
+      assert {:error, :invalid_transition} = Dispatch.mark_delivered(order.id, driver.id)
+    end
+
+    test "refuses a pickup on an order the driver was never assigned" do
+      driver = online_driver(0.5, 100)
+      {:ok, order} = Dispatch.create_order(order_attrs())
+
+      assert {:error, :forbidden} = Dispatch.mark_picked_up(order.id, driver.id)
+    end
+
+    test "cancels an assigned order and frees the driver" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+
+      assert {:ok, %{status: :cancelled}} = Dispatch.cancel_order(order.id)
+      assert {:ok, %{status: :online}} = Tracking.fetch_state(driver.id)
+    end
+
+    test "cancels a pending order that has no driver" do
+      {:ok, order} = Dispatch.create_order(order_attrs())
+      assert {:ok, %{status: :cancelled}} = Dispatch.cancel_order(order.id)
+    end
+
+    test "refuses to cancel a delivered order" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id)
+
+      assert {:error, :invalid_transition} = Dispatch.cancel_order(order.id)
+    end
+  end
+
+  describe "active_order_for_driver/1" do
+    test "returns an assigned order" do
+      driver = online_driver(0.5, 100)
+      {:ok, order} = Dispatch.assign_order(order!().id)
+
+      assert %{id: id} = Dispatch.active_order_for_driver(driver.id)
+      assert id == order.id
+    end
+
+    test "returns a picked-up order" do
+      driver = online_driver(0.5, 100)
+      {:ok, order} = Dispatch.assign_order(order!().id)
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+
+      assert %{status: :picked_up} = Dispatch.active_order_for_driver(driver.id)
+    end
+
+    test "returns nil once the order is delivered" do
+      driver = online_driver(0.5, 100)
+      {:ok, order} = Dispatch.assign_order(order!().id)
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id)
+
+      assert Dispatch.active_order_for_driver(driver.id) == nil
+    end
+
+    test "returns nil for a driver with no order" do
+      driver = online_driver(0.5, 100)
+      assert Dispatch.active_order_for_driver(driver.id) == nil
+    end
+  end
+
+  describe "list_active_orders/0" do
+    test "lists non-terminal orders, excluding delivered and cancelled" do
+      driver = online_driver(0.5, 100)
+
+      {:ok, delivered} = Dispatch.assign_order(order!().id)
+      {:ok, _} = Dispatch.mark_picked_up(delivered.id, driver.id)
+      {:ok, _} = Dispatch.mark_delivered(delivered.id, driver.id)
+
+      {:ok, assigned} = Dispatch.assign_order(order!().id)
+
+      {:ok, pending} = Dispatch.create_order(order_attrs())
+
+      ids = Enum.map(Dispatch.list_active_orders(), & &1.id)
+
+      assert assigned.id in ids
+      assert pending.id in ids
+      refute delivered.id in ids
+    end
+  end
+
+  describe "order broadcasts" do
+    test "every order change is announced on the fleet orders topic" do
+      :ok = Dispatch.subscribe_orders()
+      driver = online_driver(0.5, 100)
+
+      {:ok, order} = Dispatch.create_order(order_attrs())
+      assert_receive {:order_changed, %Order{status: :pending}}
+
+      {:ok, _} = Dispatch.assign_order(order.id)
+      assert_receive {:order_changed, %Order{status: :assigned}}
+
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+      assert_receive {:order_changed, %Order{status: :picked_up}}
+
+      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id)
+      assert_receive {:order_changed, %Order{status: :delivered}}
+    end
+  end
+
+  describe "count_delivered_today/0" do
+    test "counts a delivered order" do
+      driver = online_driver(0.5, 100)
+      {:ok, order} = Dispatch.assign_order(order!().id)
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id)
+
+      assert Dispatch.count_delivered_today() >= 1
+    end
+  end
+
+  describe "list_orders/1" do
+    test "filters by status, newest first" do
+      driver = online_driver(0.5, 100)
+      {:ok, delivered} = Dispatch.assign_order(order!().id)
+      {:ok, _} = Dispatch.mark_picked_up(delivered.id, driver.id)
+      {:ok, _} = Dispatch.mark_delivered(delivered.id, driver.id)
+      {:ok, pending} = Dispatch.create_order(order_attrs())
+
+      delivered_ids = Enum.map(Dispatch.list_orders(status: :delivered), & &1.id)
+      assert delivered.id in delivered_ids
+      refute pending.id in delivered_ids
+
+      all_ids = Enum.map(Dispatch.list_orders(status: :all), & &1.id)
+      assert pending.id in all_ids
+      assert delivered.id in all_ids
+    end
+  end
+
+  describe "assign_order_to_driver/2" do
+    test "assigns the chosen online driver" do
+      driver = online_driver(0.5, 100)
+      {:ok, order} = Dispatch.create_order(order_attrs())
+
+      assert {:ok, assigned} = Dispatch.assign_order_to_driver(order.id, driver.id)
+      assert assigned.driver_id == driver.id
+      assert {:ok, %{status: :busy}} = Tracking.fetch_state(driver.id)
+    end
+
+    test "refuses a driver that is already busy" do
+      driver = online_driver(0.5, 100)
+      {:ok, first} = Dispatch.create_order(order_attrs())
+      {:ok, _} = Dispatch.assign_order_to_driver(first.id, driver.id)
+
+      {:ok, second} = Dispatch.create_order(order_attrs())
+      assert {:error, :unavailable} = Dispatch.assign_order_to_driver(second.id, driver.id)
+    end
+  end
+
+  describe "multi-order queue per driver" do
+    test "assigns multiple orders up to driver capacity limit (default 3)" do
+      driver = online_driver(1.0, 500)
+
+      {:ok, pid} = DriverRegistry.whereis(driver.id)
+      :sys.replace_state(pid, fn state -> %{state | max_orders: 3} end)
+
+      order1 = order!(%{weight_kg: 50})
+      order2 = order!(%{weight_kg: 50})
+      order3 = order!(%{weight_kg: 50})
+      order4 = order!(%{weight_kg: 50})
+
+      assert {:ok, _assigned1} = Dispatch.assign_order(order1.id)
+      assert {:ok, %{status: :online, active_orders_count: 1}} = Tracking.fetch_state(driver.id)
+
+      assert {:ok, _assigned2} = Dispatch.assign_order(order2.id)
+      assert {:ok, %{status: :online, active_orders_count: 2}} = Tracking.fetch_state(driver.id)
+
+      assert {:ok, _assigned3} = Dispatch.assign_order(order3.id)
+      assert {:ok, %{status: :busy, active_orders_count: 3}} = Tracking.fetch_state(driver.id)
+
+      assert {:error, :no_driver_available} = Dispatch.assign_order(order4.id)
+
+      active_orders = Dispatch.active_orders_for_driver(driver.id)
+      assert length(active_orders) == 3
+
+      assert {:ok, _picked} = Dispatch.mark_picked_up(order1.id, driver.id)
+      assert {:ok, _delivered} = Dispatch.mark_delivered(order1.id, driver.id)
+      assert {:ok, %{status: :online, active_orders_count: 2}} = Tracking.fetch_state(driver.id)
+
+      # Now 4th order can be assigned
+      assert {:ok, _assigned4} = Dispatch.assign_order(order4.id)
+      assert {:ok, %{status: :busy, active_orders_count: 3}} = Tracking.fetch_state(driver.id)
+    end
+  end
+end

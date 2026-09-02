@@ -6,10 +6,10 @@ import Config
 # to provide built-in test partitioning in CI environment.
 # Run `mix help test` for more information.
 config :fleet_pulse, FleetPulse.Repo,
-  username: "postgres",
-  password: "postgres",
-  hostname: "localhost",
-  database: "fleet_pulse_test#{System.get_env("MIX_TEST_PARTITION")}",
+  username: System.fetch_env!("DB_USERNAME"),
+  password: System.fetch_env!("DB_PASSWORD"),
+  hostname: System.get_env("DB_HOST") || "localhost",
+  database: (System.get_env("TEST_DB_NAME") || "kinetix_matching_test") <> (System.get_env("MIX_TEST_PARTITION") || ""),
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: System.schedulers_online() * 2
 
@@ -17,7 +17,9 @@ config :fleet_pulse, FleetPulse.Repo,
 # you can enable the server option below.
 config :fleet_pulse, FleetPulseWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
-  secret_key_base: "Miw+jZ/kqU05GjgVFl7n5cxegNP4xRAudXsH6f4O0SwRurtpNY82mGIZwR4qxGCC",
+  secret_key_base:
+    System.get_env("SECRET_KEY_BASE") ||
+      String.duplicate("test_only_not_a_secret_", 4),
   server: false
 
 # In test we don't send emails
@@ -27,7 +29,13 @@ config :fleet_pulse, FleetPulse.Tracking.PersistenceBatcher, enabled: false
 
 config :fleet_pulse, FleetPulse.Tracking.IdleReaper, enabled: false
 
+config :fleet_pulse, FleetPulse.Tracking.PingRetention, enabled: false
+
 config :fleet_pulse, FleetPulseWeb.DispatchLive, flush_interval_ms: 60_000
+
+config :fleet_pulse, FleetPulse.Dispatch.ReDispatcher, enabled: false, debounce_ms: 60_000
+
+config :fleet_pulse, FleetPulseWeb.Plugs.RateLimit, enabled: false
 
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false

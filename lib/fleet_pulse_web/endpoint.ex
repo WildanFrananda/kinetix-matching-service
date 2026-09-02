@@ -16,6 +16,10 @@ defmodule FleetPulseWeb.Endpoint do
     websocket: [connect_info: [:peer_data, :user_agent]],
     longpoll: false
 
+  socket "/merchant", FleetPulseWeb.MerchantSocket,
+    websocket: [connect_info: [:peer_data, :user_agent]],
+    longpoll: false
+
   plug Plug.Static,
     at: "/",
     from: :fleet_pulse,

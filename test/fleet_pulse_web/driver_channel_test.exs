@@ -3,6 +3,7 @@ defmodule FleetPulseWeb.DriverChannelTest do
 
   import FleetPulse.TrackingFixtures
 
+  alias FleetPulse.Dispatch
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.StateCache
   alias FleetPulseWeb.DriverSocket
@@ -182,6 +183,138 @@ defmodule FleetPulseWeb.DriverChannelTest do
 
       refute_receive {:driver_updated, %{status: :offline}}, 200
       assert {:ok, %{status: :online}} = Tracking.fetch_driver(driver.id)
+    end
+  end
+
+  describe "assignment push" do
+    setup %{driver: driver, socket: socket} do
+      channel = join!(socket, driver.id)
+
+      :ok =
+        Tracking.track_location(
+          driver.id,
+          telemetry_attrs(%{latitude: -6.1754, longitude: 106.8272})
+        )
+
+      {:ok, _state} = Tracking.fetch_state(driver.id)
+      %{channel: channel}
+    end
+
+    test "advances the order through pickup and delivery from the device", %{
+      driver: driver,
+      channel: channel
+    } do
+      {:ok, order} =
+        Dispatch.create_order(%{
+          pickup_latitude: -6.1754,
+          pickup_longitude: 106.8272,
+          dropoff_latitude: -6.9,
+          dropoff_longitude: 107.6,
+          weight_kg: 50
+        })
+
+      {:ok, _} = Dispatch.assign_order(order.id)
+      assert_push "order_assigned", _payload
+
+      ref = push(channel, "pickup", %{"order_id" => order.id})
+      assert_reply ref, :ok
+      assert {:ok, %{status: :picked_up}} = Dispatch.fetch_order(order.id)
+
+      ref = push(channel, "delivered", %{"order_id" => order.id})
+      assert_reply ref, :ok
+      assert {:ok, %{status: :delivered}} = Dispatch.fetch_order(order.id)
+
+      assert {:ok, %{status: :online}} = Tracking.fetch_state(driver.id)
+    end
+
+    test "refuses to advance an order the driver does not own", %{channel: channel} do
+      intruder = driver_fixture(%{capacity_kg: 500})
+      on_exit(fn -> cleanup(intruder.id) end)
+      {:ok, _pid} = Tracking.start_tracking(intruder.id)
+      {:ok, _} = Tracking.set_status(intruder.id, :online)
+
+      :ok =
+        Tracking.track_location(
+          intruder.id,
+          telemetry_attrs(%{latitude: -6.1754, longitude: 106.8272})
+        )
+
+      {:ok, _} = Tracking.fetch_state(intruder.id)
+
+      {:ok, order} =
+        Dispatch.create_order(%{
+          pickup_latitude: -6.1754,
+          pickup_longitude: 106.8272,
+          dropoff_latitude: -6.9,
+          dropoff_longitude: 107.6,
+          weight_kg: 200
+        })
+
+      {:ok, assigned} = Dispatch.assign_order(order.id)
+      assert assigned.driver_id == intruder.id
+
+      ref = push(channel, "pickup", %{"order_id" => order.id})
+      assert_reply ref, :error, %{reason: "forbidden"}
+    end
+
+    test "pushes an assigned order to the driver's device" do
+      {:ok, order} =
+        Dispatch.create_order(%{
+          pickup_latitude: -6.1754,
+          pickup_longitude: 106.8272,
+          dropoff_latitude: -6.9,
+          dropoff_longitude: 107.6,
+          weight_kg: 50
+        })
+
+      assert {:ok, _assigned} = Dispatch.assign_order(order.id)
+
+      assert_push "order_assigned", payload
+      assert payload.id == order.id
+      assert payload.status == :assigned
+      assert payload.pickup == %{latitude: -6.1754, longitude: 106.8272}
+    end
+  end
+
+  describe "active order on join" do
+    test "a driver with no order is told so on join", %{driver: driver, socket: socket} do
+      {:ok, _reply, chan} = subscribe_and_join(socket, "driver:#{driver.id}")
+      on_exit(fn -> if Process.alive?(chan.channel_pid), do: close(chan) end)
+
+      assert_push "active_order", %{order: nil}
+    end
+
+    test "a reconnecting driver receives their in-flight order and stays busy",
+         %{driver: driver, socket: socket} do
+      {:ok, _pid} = Tracking.start_tracking(driver.id)
+      {:ok, _} = Tracking.set_status(driver.id, :online)
+
+      :ok =
+        Tracking.track_location(
+          driver.id,
+          telemetry_attrs(%{latitude: -6.1754, longitude: 106.8272})
+        )
+
+      {:ok, _} = Tracking.fetch_state(driver.id)
+
+      {:ok, order} =
+        Dispatch.create_order(%{
+          pickup_latitude: -6.1754,
+          pickup_longitude: 106.8272,
+          dropoff_latitude: -6.9,
+          dropoff_longitude: 107.6,
+          weight_kg: 50
+        })
+
+      {:ok, _} = Dispatch.assign_order(order.id)
+
+      {:ok, _reply, chan} = subscribe_and_join(socket, "driver:#{driver.id}")
+      on_exit(fn -> if Process.alive?(chan.channel_pid), do: close(chan) end)
+
+      assert_push "active_order", %{order: %{id: id}}
+      assert id == order.id
+
+      assert {:ok, %{status: :busy}} = Tracking.fetch_state(driver.id)
     end
   end
 end
