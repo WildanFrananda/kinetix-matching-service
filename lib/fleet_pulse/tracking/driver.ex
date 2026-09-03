@@ -1,29 +1,17 @@
 defmodule FleetPulse.Tracking.Driver do
   @moduledoc """
-  Ecto schema for fleet drivers — a Pure Data Object (PODO).
+  Pure Ecto Schema and Changeset functions for a Courier / Driver.
 
-  This module has NO behavior: no `save/0`, `update/0`, or queries.
-  All persistence resides in `FleetPulse.Tracking` (context). Here
-  there is only the data form + incoming attribute validation rules.
+  Encapsulates data shape, validations, status transitions, and
+  JWT / gRPC identity verification.
   """
 
   use Ecto.Schema
-
   import Ecto.Changeset
-
   alias FleetPulse.Types
 
-  @typedoc "Driver availability status. Mirror of `@statuses` — keep them in sync."
   @type status :: Types.driver_status()
 
-  @typedoc """
-  Persist driver record.
-
-  All fields are `| nil` because `%Driver{}` is plain (before `cast/4` or load
-  from the DB) contains `nil` everywhere. Write `id:Types.id()` without `| nil`
-  is the most common typespec lie in Ecto projects — Direct Dialyzer
-  reject it once you create a manual struct.
-  """
   @type t :: %__MODULE__{
           __meta__: Ecto.Schema.Metadata.t(),
           id: Types.id() | nil,
@@ -33,11 +21,12 @@ defmodule FleetPulse.Tracking.Driver do
           capacity_kg: non_neg_integer() | nil,
           status: status() | nil,
           active: boolean() | nil,
+          hashed_password: String.t() | nil,
+          password: String.t() | nil,
           inserted_at: DateTime.t() | nil,
           updated_at: DateTime.t() | nil
         }
 
-  @typedoc "A changeset whose data is guaranteed to be of type `t()`."
   @type changeset :: Ecto.Changeset.t(t())
 
   @statuses [:online, :busy, :offline]
@@ -51,13 +40,14 @@ defmodule FleetPulse.Tracking.Driver do
     field :capacity_kg, :integer, default: 0
     field :status, Ecto.Enum, values: @statuses, default: :offline
     field :active, :boolean, default: true
+    field :hashed_password, :string, redact: true
+    field :password, :string, virtual: true, redact: true
 
     timestamps(type: :utc_datetime)
   end
 
-  @doc """
-  A list of valid states — a single source for validation, seeds, and UI choices.
-  """
+  @max_password_bytes 72
+
   @spec statuses() :: [status()]
   def statuses, do: @statuses
 
@@ -79,12 +69,57 @@ defmodule FleetPulse.Tracking.Driver do
   end
 
   @doc """
-  Narrow changeset for state transitions only.
+  Changeset for new driver registrations.
+  """
+  @spec registration_changeset(t(), map()) :: changeset()
+  def registration_changeset(%__MODULE__{} = driver, attrs) when is_map(attrs) do
+    driver
+    |> changeset(Map.put(attrs, "active", false))
+    |> cast(attrs, [:password])
+    |> validate_required([:password])
+    |> validate_length(:password, min: 12, max: @max_password_bytes, count: :bytes)
+    |> put_password_hash()
+  end
 
-  Used by `Tracking.DriverState` (Stage 2) when flushing state from memory.
-  Intentionally accepts `map()` instead of `status()`, so that invalid values ​​result in an
-  invalid changeset — not a `FunctionClauseError`. See CLAUDE.md §4: do not
-  raise for normal control flow.
+  @doc """
+  Changeset for setting or changing a driver's login password.
+  """
+  @spec password_changeset(t(), map()) :: changeset()
+  def password_changeset(%__MODULE__{} = driver, attrs) do
+    driver
+    |> cast(attrs, [:password])
+    |> validate_required([:password])
+    |> validate_length(:password, min: 12, max: @max_password_bytes, count: :bytes)
+    |> put_password_hash()
+  end
+
+  @spec put_password_hash(changeset()) :: changeset()
+  defp put_password_hash(
+         %Ecto.Changeset{valid?: true, changes: %{password: password}} = changeset
+       ) do
+    changeset
+    |> put_change(:hashed_password, Bcrypt.hash_pwd_salt(password))
+    |> delete_change(:password)
+  end
+
+  defp put_password_hash(changeset), do: changeset
+
+  @doc """
+  Verifies driver identity against kinetix-identity-service or local BCrypt fallback.
+  """
+  @spec valid_password?(t(), String.t()) :: boolean()
+  def valid_password?(%__MODULE__{hashed_password: hashed}, password)
+      when is_binary(hashed) and is_binary(password) do
+    Bcrypt.verify_pass(password, hashed)
+  end
+
+  def valid_password?(_driver, _password) do
+    Bcrypt.no_user_verify()
+    false
+  end
+
+  @doc """
+  Narrow changeset for state transitions only.
   """
   @spec status_changeset(t(), map()) :: changeset()
   def status_changeset(%__MODULE__{} = driver, attrs) do

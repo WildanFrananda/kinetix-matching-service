@@ -12,11 +12,7 @@ defmodule FleetPulseWeb.Telemetry do
           {:ok, {Supervisor.sup_flags(), [Supervisor.child_spec()]}}
   def init(_arg) do
     children = [
-      # Telemetry poller will execute the given period measurements
-      # every 10_000ms. Learn more here: https://telemetry-metrics.hexdocs.pm
       {:telemetry_poller, measurements: periodic_measurements(), period: 10_000}
-      # Add reporters as children of your supervision tree.
-      # {Telemetry.Metrics.ConsoleReporter, metrics: metrics()}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)
@@ -80,6 +76,18 @@ defmodule FleetPulseWeb.Telemetry do
       ),
 
       # VM Metrics
+      counter("fleet_pulse.dispatch.order_created.count"),
+      summary("fleet_pulse.dispatch.order_created.weight_kg"),
+      counter("fleet_pulse.dispatch.order_assigned.count"),
+      summary("fleet_pulse.dispatch.order_assigned.time_to_assign_ms",
+        unit: :millisecond,
+        description: "Time from order creation to driver claim"
+      ),
+      counter("fleet_pulse.dispatch.dispatch_failed.count",
+        description: "Assignments that found no eligible driver in range"
+      ),
+      counter("fleet_pulse.dispatch.order_delivered.count"),
+      counter("fleet_pulse.dispatch.order_cancelled.count"),
       summary("vm.memory.total", unit: {:byte, :kilobyte}),
       summary("vm.total_run_queue_lengths.total"),
       summary("vm.total_run_queue_lengths.cpu"),
