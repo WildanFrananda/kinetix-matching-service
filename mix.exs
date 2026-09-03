@@ -90,6 +90,7 @@ defmodule FleetPulse.MixProject do
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
       {:grpc, "~> 0.9"},
+      {:grpc_reflection, "~> 0.4"},
       {:protobuf, "~> 0.13"},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
 

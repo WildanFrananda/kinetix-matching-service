@@ -7,6 +7,8 @@
 # General application configuration
 import Config
 
+config :fleet_pulse, start_grpc_server: true
+
 config :fleet_pulse,
   ecto_repos: [FleetPulse.Repo],
   generators: [timestamp_type: :utc_datetime]

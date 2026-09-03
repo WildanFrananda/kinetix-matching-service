@@ -6,8 +6,6 @@ defmodule FleetPulse.Application do
   @spec start(Application.start_type(), term()) ::
           {:ok, pid()} | {:ok, pid(), Application.state()} | {:error, term()}
   def start(_type, _args) do
-    grpc_port = String.to_integer(System.get_env("GRPC_PORT") || "50053")
-
     children =
       [
         FleetPulseWeb.Telemetry,
@@ -15,9 +13,8 @@ defmodule FleetPulse.Application do
         {DNSCluster, query: Application.get_env(:fleet_pulse, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: FleetPulse.PubSub},
         FleetPulse.Tracking.Supervisor,
-        {FleetPulse.RateLimit, clean_period: :timer.minutes(10)},
-        {GRPC.Server.Supervisor, endpoint: FleetPulse.GrpcEndpoint, port: grpc_port, start_server: true}
-      ] ++ redispatcher() ++ [FleetPulseWeb.Endpoint]
+        {FleetPulse.RateLimit, clean_period: :timer.minutes(10)}
+      ] ++ grpc_children() ++ redispatcher() ++ [FleetPulseWeb.Endpoint]
 
     opts = [strategy: :one_for_one, name: FleetPulse.Supervisor]
     Supervisor.start_link(children, opts)
@@ -28,6 +25,21 @@ defmodule FleetPulse.Application do
   def config_change(changed, _new, removed) do
     FleetPulseWeb.Endpoint.config_change(changed, removed)
     :ok
+  end
+
+  @spec grpc_children() :: [Supervisor.child_spec() | {module(), term()} | module()]
+  defp grpc_children do
+    if Application.get_env(:fleet_pulse, :start_grpc_server, true) do
+      grpc_port = String.to_integer(System.fetch_env!("GRPC_PORT"))
+
+      [
+        {GRPC.Server.Supervisor,
+         endpoint: FleetPulse.GrpcEndpoint, port: grpc_port, start_server: true},
+        GrpcReflection
+      ]
+    else
+      []
+    end
   end
 
   @spec redispatcher() :: [FleetPulse.Dispatch.ReDispatcher]

@@ -7,21 +7,18 @@
 #     -I proto proto/fleet/v1/courier_telemetry.proto \
 #     proto/common/v1/types.proto proto/common/v1/enums.proto
 
-defmodule FleetPulse.Proto.Fleet.V1.DispatchCourierRequest do
+defmodule FleetPulse.Proto.Common.V1.Money do
   @moduledoc false
 
-  use Protobuf,
-    full_name: "fleet.v1.DispatchCourierRequest",
-    protoc_gen_elixir_version: "0.17.0",
-    syntax: :proto3
+  use Protobuf, full_name: "common.v1.Money", protoc_gen_elixir_version: "0.17.0", syntax: :proto3
 
   def descriptor do
     # credo:disable-for-next-line
     %Google.Protobuf.DescriptorProto{
-      name: "DispatchCourierRequest",
+      name: "Money",
       field: [
         %Google.Protobuf.FieldDescriptorProto{
-          name: "merchant_api_key",
+          name: "currency_code",
           extendee: nil,
           number: 1,
           label: :LABEL_OPTIONAL,
@@ -30,13 +27,13 @@ defmodule FleetPulse.Proto.Fleet.V1.DispatchCourierRequest do
           default_value: nil,
           options: nil,
           oneof_index: nil,
-          json_name: "merchantApiKey",
+          json_name: "currencyCode",
           proto3_optional: nil,
           __unknown_fields__: [],
           __protobuf__: true
         },
         %Google.Protobuf.FieldDescriptorProto{
-          name: "order_id",
+          name: "units",
           extendee: nil,
           number: 2,
           label: :LABEL_OPTIONAL,
@@ -45,179 +42,22 @@ defmodule FleetPulse.Proto.Fleet.V1.DispatchCourierRequest do
           default_value: nil,
           options: nil,
           oneof_index: nil,
-          json_name: "orderId",
+          json_name: "units",
           proto3_optional: nil,
           __unknown_fields__: [],
           __protobuf__: true
         },
         %Google.Protobuf.FieldDescriptorProto{
-          name: "order_number",
+          name: "nanos",
           extendee: nil,
           number: 3,
-          label: :LABEL_OPTIONAL,
-          type: :TYPE_STRING,
-          type_name: nil,
-          default_value: nil,
-          options: nil,
-          oneof_index: nil,
-          json_name: "orderNumber",
-          proto3_optional: nil,
-          __unknown_fields__: [],
-          __protobuf__: true
-        },
-        %Google.Protobuf.FieldDescriptorProto{
-          name: "pickup_address",
-          extendee: nil,
-          number: 4,
-          label: :LABEL_OPTIONAL,
-          type: :TYPE_MESSAGE,
-          type_name: ".common.v1.Address",
-          default_value: nil,
-          options: nil,
-          oneof_index: nil,
-          json_name: "pickupAddress",
-          proto3_optional: nil,
-          __unknown_fields__: [],
-          __protobuf__: true
-        },
-        %Google.Protobuf.FieldDescriptorProto{
-          name: "delivery_address",
-          extendee: nil,
-          number: 5,
-          label: :LABEL_OPTIONAL,
-          type: :TYPE_MESSAGE,
-          type_name: ".common.v1.Address",
-          default_value: nil,
-          options: nil,
-          oneof_index: nil,
-          json_name: "deliveryAddress",
-          proto3_optional: nil,
-          __unknown_fields__: [],
-          __protobuf__: true
-        }
-      ],
-      nested_type: [],
-      enum_type: [],
-      extension_range: [],
-      extension: [],
-      options: nil,
-      oneof_decl: [],
-      reserved_range: [],
-      reserved_name: [],
-      __unknown_fields__: [],
-      __protobuf__: true
-    }
-  end
-
-  field :merchant_api_key, 1, type: :string, json_name: "merchantApiKey"
-  field :order_id, 2, type: :int64, json_name: "orderId"
-  field :order_number, 3, type: :string, json_name: "orderNumber"
-  field :pickup_address, 4, type: FleetPulse.Proto.Common.V1.Address, json_name: "pickupAddress"
-
-  field :delivery_address, 5,
-    type: FleetPulse.Proto.Common.V1.Address,
-    json_name: "deliveryAddress"
-end
-
-defmodule FleetPulse.Proto.Fleet.V1.DispatchCourierResponse do
-  @moduledoc false
-
-  use Protobuf,
-    full_name: "fleet.v1.DispatchCourierResponse",
-    protoc_gen_elixir_version: "0.17.0",
-    syntax: :proto3
-
-  def descriptor do
-    # credo:disable-for-next-line
-    %Google.Protobuf.DescriptorProto{
-      name: "DispatchCourierResponse",
-      field: [
-        %Google.Protobuf.FieldDescriptorProto{
-          name: "success",
-          extendee: nil,
-          number: 1,
-          label: :LABEL_OPTIONAL,
-          type: :TYPE_BOOL,
-          type_name: nil,
-          default_value: nil,
-          options: nil,
-          oneof_index: nil,
-          json_name: "success",
-          proto3_optional: nil,
-          __unknown_fields__: [],
-          __protobuf__: true
-        },
-        %Google.Protobuf.FieldDescriptorProto{
-          name: "dispatch_ref",
-          extendee: nil,
-          number: 2,
-          label: :LABEL_OPTIONAL,
-          type: :TYPE_STRING,
-          type_name: nil,
-          default_value: nil,
-          options: nil,
-          oneof_index: nil,
-          json_name: "dispatchRef",
-          proto3_optional: nil,
-          __unknown_fields__: [],
-          __protobuf__: true
-        },
-        %Google.Protobuf.FieldDescriptorProto{
-          name: "assigned_driver_name",
-          extendee: nil,
-          number: 3,
-          label: :LABEL_OPTIONAL,
-          type: :TYPE_STRING,
-          type_name: nil,
-          default_value: nil,
-          options: nil,
-          oneof_index: nil,
-          json_name: "assignedDriverName",
-          proto3_optional: nil,
-          __unknown_fields__: [],
-          __protobuf__: true
-        },
-        %Google.Protobuf.FieldDescriptorProto{
-          name: "assigned_driver_phone",
-          extendee: nil,
-          number: 4,
-          label: :LABEL_OPTIONAL,
-          type: :TYPE_STRING,
-          type_name: nil,
-          default_value: nil,
-          options: nil,
-          oneof_index: nil,
-          json_name: "assignedDriverPhone",
-          proto3_optional: nil,
-          __unknown_fields__: [],
-          __protobuf__: true
-        },
-        %Google.Protobuf.FieldDescriptorProto{
-          name: "vehicle",
-          extendee: nil,
-          number: 5,
-          label: :LABEL_OPTIONAL,
-          type: :TYPE_STRING,
-          type_name: nil,
-          default_value: nil,
-          options: nil,
-          oneof_index: nil,
-          json_name: "vehicle",
-          proto3_optional: nil,
-          __unknown_fields__: [],
-          __protobuf__: true
-        },
-        %Google.Protobuf.FieldDescriptorProto{
-          name: "eta_minutes",
-          extendee: nil,
-          number: 6,
           label: :LABEL_OPTIONAL,
           type: :TYPE_INT32,
           type_name: nil,
           default_value: nil,
           options: nil,
           oneof_index: nil,
-          json_name: "etaMinutes",
+          json_name: "nanos",
           proto3_optional: nil,
           __unknown_fields__: [],
           __protobuf__: true
@@ -236,29 +76,87 @@ defmodule FleetPulse.Proto.Fleet.V1.DispatchCourierResponse do
     }
   end
 
-  field :success, 1, type: :bool
-  field :dispatch_ref, 2, type: :string, json_name: "dispatchRef"
-  field :assigned_driver_name, 3, type: :string, json_name: "assignedDriverName"
-  field :assigned_driver_phone, 4, type: :string, json_name: "assignedDriverPhone"
-  field :vehicle, 5, type: :string
-  field :eta_minutes, 6, type: :int32, json_name: "etaMinutes"
+  field :currency_code, 1, type: :string, json_name: "currencyCode"
+  field :units, 2, type: :int64
+  field :nanos, 3, type: :int32
 end
 
-defmodule FleetPulse.Proto.Fleet.V1.DriverLocationPing do
+defmodule FleetPulse.Proto.Common.V1.GeoPoint do
   @moduledoc false
 
   use Protobuf,
-    full_name: "fleet.v1.DriverLocationPing",
+    full_name: "common.v1.GeoPoint",
     protoc_gen_elixir_version: "0.17.0",
     syntax: :proto3
 
   def descriptor do
     # credo:disable-for-next-line
     %Google.Protobuf.DescriptorProto{
-      name: "DriverLocationPing",
+      name: "GeoPoint",
       field: [
         %Google.Protobuf.FieldDescriptorProto{
-          name: "driver_id",
+          name: "latitude",
+          extendee: nil,
+          number: 1,
+          label: :LABEL_OPTIONAL,
+          type: :TYPE_DOUBLE,
+          type_name: nil,
+          default_value: nil,
+          options: nil,
+          oneof_index: nil,
+          json_name: "latitude",
+          proto3_optional: nil,
+          __unknown_fields__: [],
+          __protobuf__: true
+        },
+        %Google.Protobuf.FieldDescriptorProto{
+          name: "longitude",
+          extendee: nil,
+          number: 2,
+          label: :LABEL_OPTIONAL,
+          type: :TYPE_DOUBLE,
+          type_name: nil,
+          default_value: nil,
+          options: nil,
+          oneof_index: nil,
+          json_name: "longitude",
+          proto3_optional: nil,
+          __unknown_fields__: [],
+          __protobuf__: true
+        }
+      ],
+      nested_type: [],
+      enum_type: [],
+      extension_range: [],
+      extension: [],
+      options: nil,
+      oneof_decl: [],
+      reserved_range: [],
+      reserved_name: [],
+      __unknown_fields__: [],
+      __protobuf__: true
+    }
+  end
+
+  field :latitude, 1, type: :double
+  field :longitude, 2, type: :double
+end
+
+defmodule FleetPulse.Proto.Common.V1.Address do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "common.v1.Address",
+    protoc_gen_elixir_version: "0.17.0",
+    syntax: :proto3
+
+  def descriptor do
+    # credo:disable-for-next-line
+    %Google.Protobuf.DescriptorProto{
+      name: "Address",
+      field: [
+        %Google.Protobuf.FieldDescriptorProto{
+          name: "recipient_name",
           extendee: nil,
           number: 1,
           label: :LABEL_OPTIONAL,
@@ -267,13 +165,13 @@ defmodule FleetPulse.Proto.Fleet.V1.DriverLocationPing do
           default_value: nil,
           options: nil,
           oneof_index: nil,
-          json_name: "driverId",
+          json_name: "recipientName",
           proto3_optional: nil,
           __unknown_fields__: [],
           __protobuf__: true
         },
         %Google.Protobuf.FieldDescriptorProto{
-          name: "order_number",
+          name: "phone_number",
           extendee: nil,
           number: 2,
           label: :LABEL_OPTIONAL,
@@ -282,7 +180,52 @@ defmodule FleetPulse.Proto.Fleet.V1.DriverLocationPing do
           default_value: nil,
           options: nil,
           oneof_index: nil,
-          json_name: "orderNumber",
+          json_name: "phoneNumber",
+          proto3_optional: nil,
+          __unknown_fields__: [],
+          __protobuf__: true
+        },
+        %Google.Protobuf.FieldDescriptorProto{
+          name: "street_address",
+          extendee: nil,
+          number: 3,
+          label: :LABEL_OPTIONAL,
+          type: :TYPE_STRING,
+          type_name: nil,
+          default_value: nil,
+          options: nil,
+          oneof_index: nil,
+          json_name: "streetAddress",
+          proto3_optional: nil,
+          __unknown_fields__: [],
+          __protobuf__: true
+        },
+        %Google.Protobuf.FieldDescriptorProto{
+          name: "city",
+          extendee: nil,
+          number: 4,
+          label: :LABEL_OPTIONAL,
+          type: :TYPE_STRING,
+          type_name: nil,
+          default_value: nil,
+          options: nil,
+          oneof_index: nil,
+          json_name: "city",
+          proto3_optional: nil,
+          __unknown_fields__: [],
+          __protobuf__: true
+        },
+        %Google.Protobuf.FieldDescriptorProto{
+          name: "postal_code",
+          extendee: nil,
+          number: 5,
+          label: :LABEL_OPTIONAL,
+          type: :TYPE_STRING,
+          type_name: nil,
+          default_value: nil,
+          options: nil,
+          oneof_index: nil,
+          json_name: "postalCode",
           proto3_optional: nil,
           __unknown_fields__: [],
           __protobuf__: true
@@ -290,7 +233,7 @@ defmodule FleetPulse.Proto.Fleet.V1.DriverLocationPing do
         %Google.Protobuf.FieldDescriptorProto{
           name: "location",
           extendee: nil,
-          number: 3,
+          number: 6,
           label: :LABEL_OPTIONAL,
           type: :TYPE_MESSAGE,
           type_name: ".common.v1.GeoPoint",
@@ -301,51 +244,6 @@ defmodule FleetPulse.Proto.Fleet.V1.DriverLocationPing do
           proto3_optional: nil,
           __unknown_fields__: [],
           __protobuf__: true
-        },
-        %Google.Protobuf.FieldDescriptorProto{
-          name: "speed_kmh",
-          extendee: nil,
-          number: 4,
-          label: :LABEL_OPTIONAL,
-          type: :TYPE_DOUBLE,
-          type_name: nil,
-          default_value: nil,
-          options: nil,
-          oneof_index: nil,
-          json_name: "speedKmh",
-          proto3_optional: nil,
-          __unknown_fields__: [],
-          __protobuf__: true
-        },
-        %Google.Protobuf.FieldDescriptorProto{
-          name: "status",
-          extendee: nil,
-          number: 5,
-          label: :LABEL_OPTIONAL,
-          type: :TYPE_ENUM,
-          type_name: ".common.v1.CourierStatus",
-          default_value: nil,
-          options: nil,
-          oneof_index: nil,
-          json_name: "status",
-          proto3_optional: nil,
-          __unknown_fields__: [],
-          __protobuf__: true
-        },
-        %Google.Protobuf.FieldDescriptorProto{
-          name: "timestamp_epoch_ms",
-          extendee: nil,
-          number: 6,
-          label: :LABEL_OPTIONAL,
-          type: :TYPE_INT64,
-          type_name: nil,
-          default_value: nil,
-          options: nil,
-          oneof_index: nil,
-          json_name: "timestampEpochMs",
-          proto3_optional: nil,
-          __unknown_fields__: [],
-          __protobuf__: true
         }
       ],
       nested_type: [],
@@ -361,29 +259,29 @@ defmodule FleetPulse.Proto.Fleet.V1.DriverLocationPing do
     }
   end
 
-  field :driver_id, 1, type: :string, json_name: "driverId"
-  field :order_number, 2, type: :string, json_name: "orderNumber"
-  field :location, 3, type: FleetPulse.Proto.Common.V1.GeoPoint
-  field :speed_kmh, 4, type: :double, json_name: "speedKmh"
-  field :status, 5, type: FleetPulse.Proto.Common.V1.CourierStatus, enum: true
-  field :timestamp_epoch_ms, 6, type: :int64, json_name: "timestampEpochMs"
+  field :recipient_name, 1, type: :string, json_name: "recipientName"
+  field :phone_number, 2, type: :string, json_name: "phoneNumber"
+  field :street_address, 3, type: :string, json_name: "streetAddress"
+  field :city, 4, type: :string
+  field :postal_code, 5, type: :string, json_name: "postalCode"
+  field :location, 6, type: FleetPulse.Proto.Common.V1.GeoPoint
 end
 
-defmodule FleetPulse.Proto.Fleet.V1.DriverLocationAck do
+defmodule FleetPulse.Proto.Common.V1.OrderItem do
   @moduledoc false
 
   use Protobuf,
-    full_name: "fleet.v1.DriverLocationAck",
+    full_name: "common.v1.OrderItem",
     protoc_gen_elixir_version: "0.17.0",
     syntax: :proto3
 
   def descriptor do
     # credo:disable-for-next-line
     %Google.Protobuf.DescriptorProto{
-      name: "DriverLocationAck",
+      name: "OrderItem",
       field: [
         %Google.Protobuf.FieldDescriptorProto{
-          name: "driver_id",
+          name: "sku",
           extendee: nil,
           number: 1,
           label: :LABEL_OPTIONAL,
@@ -392,37 +290,67 @@ defmodule FleetPulse.Proto.Fleet.V1.DriverLocationAck do
           default_value: nil,
           options: nil,
           oneof_index: nil,
-          json_name: "driverId",
+          json_name: "sku",
           proto3_optional: nil,
           __unknown_fields__: [],
           __protobuf__: true
         },
         %Google.Protobuf.FieldDescriptorProto{
-          name: "received",
+          name: "product_name",
           extendee: nil,
           number: 2,
           label: :LABEL_OPTIONAL,
-          type: :TYPE_BOOL,
+          type: :TYPE_STRING,
           type_name: nil,
           default_value: nil,
           options: nil,
           oneof_index: nil,
-          json_name: "received",
+          json_name: "productName",
           proto3_optional: nil,
           __unknown_fields__: [],
           __protobuf__: true
         },
         %Google.Protobuf.FieldDescriptorProto{
-          name: "server_time_ms",
+          name: "quantity",
           extendee: nil,
           number: 3,
           label: :LABEL_OPTIONAL,
-          type: :TYPE_INT64,
+          type: :TYPE_INT32,
           type_name: nil,
           default_value: nil,
           options: nil,
           oneof_index: nil,
-          json_name: "serverTimeMs",
+          json_name: "quantity",
+          proto3_optional: nil,
+          __unknown_fields__: [],
+          __protobuf__: true
+        },
+        %Google.Protobuf.FieldDescriptorProto{
+          name: "price",
+          extendee: nil,
+          number: 4,
+          label: :LABEL_OPTIONAL,
+          type: :TYPE_MESSAGE,
+          type_name: ".common.v1.Money",
+          default_value: nil,
+          options: nil,
+          oneof_index: nil,
+          json_name: "price",
+          proto3_optional: nil,
+          __unknown_fields__: [],
+          __protobuf__: true
+        },
+        %Google.Protobuf.FieldDescriptorProto{
+          name: "bin_location",
+          extendee: nil,
+          number: 5,
+          label: :LABEL_OPTIONAL,
+          type: :TYPE_STRING,
+          type_name: nil,
+          default_value: nil,
+          options: nil,
+          oneof_index: nil,
+          json_name: "binLocation",
           proto3_optional: nil,
           __unknown_fields__: [],
           __protobuf__: true
@@ -441,59 +369,86 @@ defmodule FleetPulse.Proto.Fleet.V1.DriverLocationAck do
     }
   end
 
-  field :driver_id, 1, type: :string, json_name: "driverId"
-  field :received, 2, type: :bool
-  field :server_time_ms, 3, type: :int64, json_name: "serverTimeMs"
+  field :sku, 1, type: :string
+  field :product_name, 2, type: :string, json_name: "productName"
+  field :quantity, 3, type: :int32
+  field :price, 4, type: FleetPulse.Proto.Common.V1.Money
+  field :bin_location, 5, type: :string, json_name: "binLocation"
 end
 
-defmodule FleetPulse.Proto.Fleet.V1.CourierTelemetryService.Service do
+defmodule FleetPulse.Proto.Common.V1.ErrorDetail do
   @moduledoc false
 
-  use GRPC.Service, name: "fleet.v1.CourierTelemetryService", protoc_gen_elixir_version: "0.17.0"
+  use Protobuf,
+    full_name: "common.v1.ErrorDetail",
+    protoc_gen_elixir_version: "0.17.0",
+    syntax: :proto3
 
   def descriptor do
     # credo:disable-for-next-line
-    %Google.Protobuf.ServiceDescriptorProto{
-      name: "CourierTelemetryService",
-      method: [
-        %Google.Protobuf.MethodDescriptorProto{
-          name: "DispatchCourier",
-          input_type: ".fleet.v1.DispatchCourierRequest",
-          output_type: ".fleet.v1.DispatchCourierResponse",
+    %Google.Protobuf.DescriptorProto{
+      name: "ErrorDetail",
+      field: [
+        %Google.Protobuf.FieldDescriptorProto{
+          name: "error_code",
+          extendee: nil,
+          number: 1,
+          label: :LABEL_OPTIONAL,
+          type: :TYPE_STRING,
+          type_name: nil,
+          default_value: nil,
           options: nil,
-          client_streaming: false,
-          server_streaming: false,
+          oneof_index: nil,
+          json_name: "errorCode",
+          proto3_optional: nil,
           __unknown_fields__: [],
           __protobuf__: true
         },
-        %Google.Protobuf.MethodDescriptorProto{
-          name: "StreamDriverLocation",
-          input_type: ".fleet.v1.DriverLocationPing",
-          output_type: ".fleet.v1.DriverLocationAck",
+        %Google.Protobuf.FieldDescriptorProto{
+          name: "message",
+          extendee: nil,
+          number: 2,
+          label: :LABEL_OPTIONAL,
+          type: :TYPE_STRING,
+          type_name: nil,
+          default_value: nil,
           options: nil,
-          client_streaming: true,
-          server_streaming: true,
+          oneof_index: nil,
+          json_name: "message",
+          proto3_optional: nil,
+          __unknown_fields__: [],
+          __protobuf__: true
+        },
+        %Google.Protobuf.FieldDescriptorProto{
+          name: "field_violations",
+          extendee: nil,
+          number: 3,
+          label: :LABEL_REPEATED,
+          type: :TYPE_STRING,
+          type_name: nil,
+          default_value: nil,
+          options: nil,
+          oneof_index: nil,
+          json_name: "fieldViolations",
+          proto3_optional: nil,
           __unknown_fields__: [],
           __protobuf__: true
         }
       ],
+      nested_type: [],
+      enum_type: [],
+      extension_range: [],
+      extension: [],
       options: nil,
+      oneof_decl: [],
+      reserved_range: [],
+      reserved_name: [],
       __unknown_fields__: [],
       __protobuf__: true
     }
   end
 
-  rpc :DispatchCourier,
-      FleetPulse.Proto.Fleet.V1.DispatchCourierRequest,
-      FleetPulse.Proto.Fleet.V1.DispatchCourierResponse
-
-  rpc :StreamDriverLocation,
-      stream(FleetPulse.Proto.Fleet.V1.DriverLocationPing),
-      stream(FleetPulse.Proto.Fleet.V1.DriverLocationAck)
-end
-
-defmodule FleetPulse.Proto.Fleet.V1.CourierTelemetryService.Stub do
-  @moduledoc false
-
-  use GRPC.Stub, service: FleetPulse.Proto.Fleet.V1.CourierTelemetryService.Service
+  field :error_code, 1, type: :string, json_name: "errorCode"
+  field :message, 2, type: :string
+  field :field_violations, 3, repeated: true, type: :string, json_name: "fieldViolations"
 end
