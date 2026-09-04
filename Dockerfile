@@ -108,4 +108,8 @@ COPY --from=builder --chown=nobody:root /app/_build/${MIX_ENV}/rel/fleet_pulse .
 
 USER nobody
 
+
+HEALTHCHECK --interval=10s --timeout=10s --start-period=30s --retries=3 \
+    CMD /app/bin/fleet_pulse rpc 'FleetPulse.Repo.query!("SELECT 1"); :ok' > /dev/null || exit 1
+
 CMD ["/app/bin/server"]

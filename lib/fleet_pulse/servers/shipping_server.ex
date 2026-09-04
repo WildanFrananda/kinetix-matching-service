@@ -1,10 +1,24 @@
 defmodule FleetPulse.Servers.ShippingServer do
   @moduledoc """
   gRPC Server Handler for Shipping Fee Estimation (PRD shipping_courier_selection_prd).
+
+  This module existed but was not a gRPC server: it declared no service, so it could not be
+  registered on the endpoint, and `shipping.v1` was advertised in the proto directory while
+  nothing served it. It also returned bare maps where the wire needs protobuf structs.
   """
 
+  use GRPC.Server, service: FleetPulse.Proto.Shipping.V1.ShippingService.Service
+
+  require Logger
+
+  alias FleetPulse.Proto.Shipping.V1.CourierOption
+  alias FleetPulse.Proto.Shipping.V1.EstimateShippingOptionsResponse
   alias FleetPulse.Shipping
 
+  @spec estimate_shipping_options(
+          FleetPulse.Proto.Shipping.V1.EstimateShippingOptionsRequest.t(),
+          GRPC.Server.Stream.t()
+        ) :: EstimateShippingOptionsResponse.t()
   def estimate_shipping_options(request, _stream) do
     origin = %{
       latitude: request.origin.latitude,
@@ -16,11 +30,21 @@ defmodule FleetPulse.Servers.ShippingServer do
       longitude: request.destination.longitude
     }
 
-    res = Shipping.calculate_options(origin, destination, request.total_weight_kg, request.merchant_id)
+    Logger.info(
+      "[FleetPulse gRPC Server] EstimateShippingOptions for merchant #{request.merchant_id}"
+    )
+
+    res =
+      Shipping.calculate_options(
+        origin,
+        destination,
+        request.total_weight_kg,
+        request.merchant_id
+      )
 
     options =
       Enum.map(res.options, fn opt ->
-        %{
+        %CourierOption{
           service_tier: opt.service_tier,
           service_name: opt.service_name,
           distance_km: opt.distance_km,
@@ -31,7 +55,7 @@ defmodule FleetPulse.Servers.ShippingServer do
         }
       end)
 
-    %{
+    %EstimateShippingOptionsResponse{
       distance_km: res.distance_km,
       options: options
     }

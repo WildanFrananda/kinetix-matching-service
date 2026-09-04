@@ -9,5 +9,8 @@ defmodule FleetPulse.GrpcReflectionServer do
   """
   use GrpcReflection.Server,
     version: :v1,
-    services: [FleetPulse.Proto.Fleet.V1.CourierTelemetryService.Service]
+    services: [
+      FleetPulse.Proto.Fleet.V1.CourierTelemetryService.Service,
+      FleetPulse.Proto.Shipping.V1.ShippingService.Service
+    ]
 end

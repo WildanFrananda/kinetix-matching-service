@@ -5,6 +5,7 @@ defmodule FleetPulse.Shipping do
   """
 
   alias FleetPulse.Tracking.Geo
+  alias FleetPulse.Types
 
   @type coords :: %{latitude: float(), longitude: float()}
 
@@ -14,7 +15,7 @@ defmodule FleetPulse.Shipping do
   @spec calculate_options(coords(), coords(), float(), integer() | nil) :: map()
   def calculate_options(origin, destination, weight_kg, merchant_id \\ nil) do
     _merchant_id = merchant_id
-    dist_km = Geo.distance_km(origin, destination)
+    dist_km = Geo.distance_km(to_coordinates(origin), to_coordinates(destination))
     rounded_dist = Float.round(dist_km, 2)
 
     options = [
@@ -28,6 +29,11 @@ defmodule FleetPulse.Shipping do
       distance_km: rounded_dist,
       options: options
     }
+  end
+
+  @spec to_coordinates(coords()) :: Types.coordinates()
+  defp to_coordinates(%{latitude: latitude, longitude: longitude}) do
+    {latitude, longitude}
   end
 
   defp build_instant_option(dist_km, weight_kg) do
