@@ -10,10 +10,18 @@ defmodule FleetPulseWeb.Api.V1.MerchantOrderController do
 
   @doc """
   Creates a new order submitted by an authenticated merchant.
+
+  The merchant the order belongs to is taken from the verified token and overwrites anything the
+  body carried. It used to be read straight out of `order_params`, so an authenticated caller
+  could file orders against any merchant it cared to name — and the caller's own identity was
+  never consulted at all.
   """
   @spec create(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create(conn, %{"order" => order_params}) when is_map(order_params) do
-    case Dispatch.create_order(order_params) do
+    caller = conn.assigns.current_caller
+    attrs = Map.put(order_params, "merchant_id", caller.user_id)
+
+    case Dispatch.create_order(attrs) do
       {:ok, %Order{} = order} ->
         conn
         |> put_status(:created)

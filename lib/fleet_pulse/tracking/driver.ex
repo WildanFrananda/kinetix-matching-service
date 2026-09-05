@@ -2,8 +2,8 @@ defmodule FleetPulse.Tracking.Driver do
   @moduledoc """
   Pure Ecto Schema and Changeset functions for a Courier / Driver.
 
-  Encapsulates data shape, validations, status transitions, and
-  JWT / gRPC identity verification.
+  Encapsulates data shape, validations and status transitions. It holds no credential: identity
+  is the only service on this platform that does.
   """
 
   use Ecto.Schema
@@ -21,8 +21,7 @@ defmodule FleetPulse.Tracking.Driver do
           capacity_kg: non_neg_integer() | nil,
           status: status() | nil,
           active: boolean() | nil,
-          hashed_password: String.t() | nil,
-          password: String.t() | nil,
+          principal_id: String.t() | nil,
           inserted_at: DateTime.t() | nil,
           updated_at: DateTime.t() | nil
         }
@@ -40,13 +39,10 @@ defmodule FleetPulse.Tracking.Driver do
     field :capacity_kg, :integer, default: 0
     field :status, Ecto.Enum, values: @statuses, default: :offline
     field :active, :boolean, default: true
-    field :hashed_password, :string, redact: true
-    field :password, :string, virtual: true, redact: true
+    field :principal_id, :string
 
     timestamps(type: :utc_datetime)
   end
-
-  @max_password_bytes 72
 
   @spec statuses() :: [status()]
   def statuses, do: @statuses
@@ -70,52 +66,26 @@ defmodule FleetPulse.Tracking.Driver do
 
   @doc """
   Changeset for new driver registrations.
+
+  No password: identity holds the credential. Registration files the vehicle and the person; the
+  account that will drive it is linked separately, by an operator, from a verified principal.
   """
   @spec registration_changeset(t(), map()) :: changeset()
   def registration_changeset(%__MODULE__{} = driver, attrs) when is_map(attrs) do
     driver
-    |> changeset(Map.put(attrs, "active", false))
-    |> cast(attrs, [:password])
-    |> validate_required([:password])
-    |> validate_length(:password, min: 12, max: @max_password_bytes, count: :bytes)
-    |> put_password_hash()
+    |> changeset(attrs)
+    |> put_change(:active, false)
   end
 
   @doc """
-  Changeset for setting or changing a driver's login password.
+  Changeset linking a driver row to the identity principal that authenticates as it.
   """
-  @spec password_changeset(t(), map()) :: changeset()
-  def password_changeset(%__MODULE__{} = driver, attrs) do
+  @spec principal_changeset(t(), map()) :: changeset()
+  def principal_changeset(%__MODULE__{} = driver, attrs) do
     driver
-    |> cast(attrs, [:password])
-    |> validate_required([:password])
-    |> validate_length(:password, min: 12, max: @max_password_bytes, count: :bytes)
-    |> put_password_hash()
-  end
-
-  @spec put_password_hash(changeset()) :: changeset()
-  defp put_password_hash(
-         %Ecto.Changeset{valid?: true, changes: %{password: password}} = changeset
-       ) do
-    changeset
-    |> put_change(:hashed_password, Bcrypt.hash_pwd_salt(password))
-    |> delete_change(:password)
-  end
-
-  defp put_password_hash(changeset), do: changeset
-
-  @doc """
-  Verifies driver identity against kinetix-identity-service or local BCrypt fallback.
-  """
-  @spec valid_password?(t(), String.t()) :: boolean()
-  def valid_password?(%__MODULE__{hashed_password: hashed}, password)
-      when is_binary(hashed) and is_binary(password) do
-    Bcrypt.verify_pass(password, hashed)
-  end
-
-  def valid_password?(_driver, _password) do
-    Bcrypt.no_user_verify()
-    false
+    |> cast(attrs, [:principal_id])
+    |> validate_required([:principal_id])
+    |> unique_constraint(:principal_id)
   end
 
   @doc """

@@ -151,27 +151,34 @@ defmodule FleetPulse.Tracking do
   end
 
   @doc """
-  Authenticates a driver by phone and password for token issuance.
+  The driver a verified principal authenticates as.
 
-  Always spends one bcrypt verification whether or not the phone exists, so an
-  attacker cannot enumerate valid phone numbers by response time.
+  Replaces `authenticate_driver/2`. Drivers no longer hold a password here: identity holds the
+  credential, this service holds the row, and the principal in a verified token is the link
+  between them.
+
+  An unlinked driver is unreachable over the socket until an operator links it — visible as a
+  refusal rather than as a fallback to whichever driver happened to match, and the link is only
+  ever made from a token this service verified.
   """
-  @spec authenticate_driver(String.t(), String.t()) ::
-          {:ok, Driver.t()} | {:error, :invalid_credentials | :pending_approval}
-  def authenticate_driver(phone, password) when is_binary(phone) and is_binary(password) do
-    Driver
-    |> Repo.get_by(phone: phone)
-    |> verify_driver(password)
+  @spec driver_for_principal(String.t()) :: {:ok, Driver.t()} | {:error, :unlinked}
+  def driver_for_principal(principal_id) when is_binary(principal_id) and principal_id != "" do
+    case Repo.get_by(Driver, principal_id: principal_id) do
+      %Driver{active: true} = driver -> {:ok, driver}
+      _inactive_or_missing -> {:error, :unlinked}
+    end
   end
 
+  def driver_for_principal(_principal_id), do: {:error, :unlinked}
+
   @doc """
-  Sets or replaces a driver's login password (operator action).
+  Links a driver row to the identity principal that will authenticate as it (operator action).
   """
-  @spec set_driver_password(Driver.t(), String.t()) ::
+  @spec link_driver_to_principal(Driver.t(), String.t()) ::
           {:ok, Driver.t()} | {:error, Driver.changeset()}
-  def set_driver_password(%Driver{} = driver, password) do
+  def link_driver_to_principal(%Driver{} = driver, principal_id) do
     driver
-    |> Driver.password_changeset(%{password: password})
+    |> Driver.principal_changeset(%{principal_id: principal_id})
     |> Repo.update()
   end
 
@@ -218,23 +225,6 @@ defmodule FleetPulse.Tracking do
       Repo.delete(driver)
     end
   end
-
-  @spec verify_driver(Driver.t() | nil, String.t()) ::
-          {:ok, Driver.t()} | {:error, :invalid_credentials | :pending_approval}
-  defp verify_driver(%Driver{} = driver, password) do
-    authorise_driver(Driver.valid_password?(driver, password), driver)
-  end
-
-  defp verify_driver(nil, _password) do
-    Bcrypt.no_user_verify()
-    {:error, :invalid_credentials}
-  end
-
-  @spec authorise_driver(boolean(), Driver.t()) ::
-          {:ok, Driver.t()} | {:error, :invalid_credentials | :pending_approval}
-  defp authorise_driver(false, _driver), do: {:error, :invalid_credentials}
-  defp authorise_driver(true, %Driver{active: true} = driver), do: {:ok, driver}
-  defp authorise_driver(true, %Driver{}), do: {:error, :pending_approval}
 
   @spec persist_status(Driver.t(), Driver.status()) ::
           {:ok, Driver.t()} | {:error, Driver.changeset()}

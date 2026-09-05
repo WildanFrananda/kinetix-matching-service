@@ -1,0 +1,30 @@
+ARG ELIXIR_VERSION=1.20.2
+ARG OTP_VERSION=29.0.3
+ARG DEBIAN_VERSION=trixie-20260713-slim
+ARG BUILDER_IMAGE="docker.io/hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION}@sha256:6fcd8ea864221b960c1ec418e3b10fa488298ff9e70c9e0f3db18070e610fb8a"
+
+FROM ${BUILDER_IMAGE}
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends build-essential git \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+RUN mix local.hex --force && mix local.rebar --force
+
+ENV MIX_ENV="test"
+
+COPY mix.exs mix.lock ./
+
+RUN set -eu; \
+    lock="$(grep '"daisyui"' mix.lock)"; \
+    sha="$(printf '%s' "$lock" | sed -n 's/.*daisyui\.git", "\([0-9a-f]\{40\}\)".*/\1/p')"; \
+    tag="$(printf '%s' "$lock" | sed -n 's/.*tag: "\([^"]*\)".*/\1/p')"; \
+    git clone --depth 1 --branch "$tag" --quiet https://github.com/saadeghi/daisyui.git deps/daisyui; \
+    got="$(git -C deps/daisyui rev-parse HEAD)"; \
+    test "$got" = "$sha" || { echo "tag $tag resolves to $got, but mix.lock pins $sha"; exit 1; }
+
+RUN mix deps.get
+
+CMD ["mix", "test"]

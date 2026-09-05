@@ -1,7 +1,15 @@
 defmodule FleetPulseWeb.AdminSessionController do
+  @moduledoc """
+  The dispatch console's login.
+
+  The password is forwarded to identity and never compared here — this service holds no
+  credential to compare it against. What comes back is verified with the same verifier every
+  other route uses, so there is exactly one place that decides a token is good.
+  """
+
   use FleetPulseWeb, :controller
 
-  alias FleetPulse.Accounts
+  alias FleetPulse.Security.IdentityLogin
   alias FleetPulseWeb.AdminAuth
 
   @spec new(Plug.Conn.t(), map()) :: Plug.Conn.t()
@@ -11,14 +19,19 @@ defmodule FleetPulseWeb.AdminSessionController do
 
   @spec create(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create(conn, %{"admin" => %{"email" => email, "password" => password}}) do
-    case Accounts.authenticate_admin(email, password) do
-      {:ok, admin} ->
+    case IdentityLogin.log_in(email, password) do
+      {:ok, operator} ->
         conn
         |> put_flash(:info, "Welcome back!")
-        |> AdminAuth.log_in_admin(admin)
+        |> AdminAuth.log_in_operator(operator)
 
-      {:error, :invalid_credentials} ->
+      {:error, reason} when reason in [:invalid_credentials, :not_an_operator] ->
         render(conn, :new, error_message: "Invalid email or password")
+
+      {:error, :identity_unavailable} ->
+        conn
+        |> put_status(:service_unavailable)
+        |> render(:new, error_message: "Sign-in is temporarily unavailable. Try again shortly.")
     end
   end
 
@@ -28,6 +41,6 @@ defmodule FleetPulseWeb.AdminSessionController do
   def delete(conn, _params) do
     conn
     |> put_flash(:info, "Logged out successfully")
-    |> AdminAuth.log_out_admin()
+    |> AdminAuth.log_out_operator()
   end
 end

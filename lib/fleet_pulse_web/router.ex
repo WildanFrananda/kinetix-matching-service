@@ -17,9 +17,9 @@ defmodule FleetPulseWeb.Router do
     plug :accepts, ["json"]
   end
 
-  pipeline :partner_api do
+  pipeline :authenticated_api do
     plug :accepts, ["json"]
-    plug FleetPulseWeb.Plugs.ApiKeyAuth
+    plug FleetPulseWeb.Plugs.IdentityAuth
   end
 
   scope "/", FleetPulseWeb do
@@ -45,32 +45,40 @@ defmodule FleetPulseWeb.Router do
     end
   end
 
-  scope "/", FleetPulseWeb do
-    pipe_through [:api, :throttle_login]
-    post "/driver/session", DriverSessionController, :create
-  end
+  # `POST /driver/session` is gone. It exchanged a phone and a password for a token this service
+  # signed itself — a second credential store and a second minter. A driver logs in at identity
+  # like every other account and presents that token to open its socket.
 
   scope "/", FleetPulseWeb do
     pipe_through [:api, :throttle_register]
     post "/driver/register", DriverRegistrationController, :create
   end
 
-  pipeline :throttle_login do
-    plug FleetPulseWeb.Plugs.RateLimit, bucket: :login
-  end
-
   pipeline :throttle_register do
     plug FleetPulseWeb.Plugs.RateLimit, bucket: :register
   end
 
+  # The fleet is dispatch data: who is on shift, where they are, and what they are carrying.
+  # A customer's token is a valid token and still has no business reading it.
+  pipeline :fleet_reader do
+    plug FleetPulseWeb.Plugs.RequireRole, ["seller", "admin"]
+  end
+
   scope "/api/v1", FleetPulseWeb.Api.V1, as: :api_v1 do
-    pipe_through :partner_api
+    pipe_through [:authenticated_api, :fleet_reader]
 
     get "/drivers", DriverController, :index
     get "/drivers/nearby", DriverController, :nearby
     get "/drivers/:id", DriverController, :show
     get "/orders/:id", OrderController, :show
     post "/merchant/orders", MerchantOrderController, :create
+  end
+
+  # Shipping quotes are priced from an origin, a destination and a weight. Any authenticated
+  # account may ask for one — a customer comparing options at checkout is the main caller.
+  scope "/api/v1", FleetPulseWeb.Api.V1, as: :api_v1 do
+    pipe_through :authenticated_api
+
     post "/shipping/options", ShippingController, :options
   end
 

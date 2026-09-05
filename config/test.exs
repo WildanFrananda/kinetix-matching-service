@@ -51,4 +51,11 @@ config :phoenix,
   sort_verified_routes_query_params: true
 
 # See config/config.exs — the gRPC server does not bind a port under test.
+config :fleet_pulse, FleetPulse.IdentityJwks, port: 4444
+
+System.put_env("JWT_ISSUER", System.get_env("JWT_ISSUER") || "https://identity.kinetix.local")
+System.put_env("JWT_AUDIENCE", System.get_env("JWT_AUDIENCE") || "kinetix")
+System.put_env("IDENTITY_JWKS_URL", "http://127.0.0.1:4444/.well-known/jwks.json")
+System.put_env("IDENTITY_HTTP_URL", System.get_env("IDENTITY_HTTP_URL") || "http://127.0.0.1:1")
+
 config :fleet_pulse, start_grpc_server: false

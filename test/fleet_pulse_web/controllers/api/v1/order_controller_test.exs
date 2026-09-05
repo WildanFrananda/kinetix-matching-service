@@ -1,15 +1,12 @@
 defmodule FleetPulseWeb.Api.V1.OrderControllerTest do
   use FleetPulseWeb.ConnCase, async: true
 
-  alias FleetPulse.Api
   alias FleetPulse.Dispatch
 
   setup %{conn: conn} do
-    {:ok, _key, plaintext} = Api.create_key("Test")
-
     conn =
       conn
-      |> put_req_header("authorization", "Bearer #{plaintext}")
+      |> authenticate(role: "seller")
       |> put_req_header("accept", "application/json")
 
     %{conn: conn}

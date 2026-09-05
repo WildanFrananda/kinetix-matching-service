@@ -3,17 +3,14 @@ defmodule FleetPulseWeb.Api.V1.DriverControllerTest do
 
   import FleetPulse.TrackingFixtures
 
-  alias FleetPulse.Api
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.StateCache
 
   setup %{conn: conn} do
     Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
-    {:ok, _key, plaintext} = Api.create_key("Test")
-
     conn =
       conn
-      |> put_req_header("authorization", "Bearer #{plaintext}")
+      |> authenticate(role: "seller")
       |> put_req_header("accept", "application/json")
 
     %{conn: conn}

@@ -6,16 +6,28 @@ defmodule FleetPulseWeb.DriverChannelTest do
   alias FleetPulse.Dispatch
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.StateCache
+  alias FleetPulse.IdentityJwks
   alias FleetPulseWeb.DriverSocket
-  alias FleetPulseWeb.DriverToken
+
+  defp linked_driver(overrides \\ %{}) do
+    driver = driver_fixture(overrides)
+    principal = "principal-#{System.unique_integer([:positive])}"
+    {:ok, driver} = Tracking.link_driver_to_principal(driver, principal)
+    {driver, principal}
+  end
+
+  defp driver_socket(principal) do
+    {:ok, socket} =
+      connect(DriverSocket, %{"token" => IdentityJwks.token(role: "courier", sub: principal)})
+
+    socket
+  end
 
   setup do
-    driver = driver_fixture()
+    {driver, principal} = linked_driver()
     on_exit(fn -> cleanup(driver.id) end)
 
-    {:ok, socket} = connect(DriverSocket, %{"token" => DriverToken.sign(driver.id)})
-
-    %{driver: driver, socket: socket}
+    %{driver: driver, principal: principal, socket: driver_socket(principal)}
   end
 
   defp cleanup(driver_id) do
@@ -35,8 +47,8 @@ defmodule FleetPulseWeb.DriverChannelTest do
   end
 
   describe "connect/3" do
-    test "accepts a valid token and assigns the driver", %{driver: driver} do
-      assert {:ok, socket} = connect(DriverSocket, %{"token" => DriverToken.sign(driver.id)})
+    test "accepts a valid token and assigns the driver", %{driver: driver, principal: principal} do
+      assert socket = driver_socket(principal)
       assert socket.assigns.driver_id == driver.id
     end
 
@@ -46,6 +58,18 @@ defmodule FleetPulseWeb.DriverChannelTest do
 
     test "refuses a connection carrying no token" do
       assert {:error, :missing_token} = connect(DriverSocket, %{})
+    end
+
+    test "refuses a valid token whose principal is linked to no driver here" do
+      assert {:error, :unlinked} =
+               connect(DriverSocket, %{
+                 "token" => IdentityJwks.token(role: "courier", sub: "principal-nobody")
+               })
+    end
+
+    test "refuses a customer, whose token is valid and carries no courier authority" do
+      assert {:error, :not_a_courier} =
+               connect(DriverSocket, %{"token" => IdentityJwks.token(role: "customer")})
     end
   end
 
@@ -71,11 +95,9 @@ defmodule FleetPulseWeb.DriverChannelTest do
       end
     end
 
-    test "rejects a driver id that does not exist" do
-      {:ok, socket} = connect(DriverSocket, %{"token" => DriverToken.sign(999_999_999)})
-
-      assert {:error, %{reason: "not_found"}} =
-               subscribe_and_join(socket, "driver:999999999")
+    test "rejects a topic naming a driver the socket is not", %{socket: socket} do
+      assert {:error, %{reason: reason}} = subscribe_and_join(socket, "driver:999999999")
+      assert reason in ["forbidden", "not_found"]
     end
 
     test "marks the driver online", %{driver: driver, socket: socket} do

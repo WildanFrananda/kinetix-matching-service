@@ -2,14 +2,13 @@ defmodule FleetPulseWeb.DispatchLiveTest do
   use FleetPulseWeb.ConnCase
 
   import FleetPulse.TrackingFixtures
-  import FleetPulse.AccountsFixtures
 
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.StateCache
 
   setup %{conn: conn} do
     Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
-    %{conn: log_in_admin(conn, admin_fixture())}
+    %{conn: log_in_operator(conn)}
   end
 
   defp place!(latitude) do

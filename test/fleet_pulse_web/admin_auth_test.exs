@@ -1,8 +1,7 @@
 defmodule FleetPulseWeb.AdminAuthTest do
   use FleetPulseWeb.ConnCase, async: true
 
-  import FleetPulse.AccountsFixtures
-
+  alias FleetPulse.Security.AccessClaims
   alias FleetPulseWeb.AdminAuth
 
   setup %{conn: conn} do
@@ -11,13 +10,25 @@ defmodule FleetPulseWeb.AdminAuthTest do
       |> Phoenix.ConnTest.init_test_session(%{})
       |> Phoenix.Controller.fetch_flash([])
 
-    %{conn: conn, admin: admin_fixture()}
+    operator = %AccessClaims{
+      principal_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      user_id: 7,
+      email: "operator@kinetix.test",
+      role: "admin"
+    }
+
+    %{conn: conn, operator: operator}
   end
 
   describe "fetch_current_admin/2" do
-    test "assigns the admin from a valid session", %{conn: conn, admin: admin} do
-      conn = conn |> put_session("admin_id", admin.id) |> AdminAuth.fetch_current_admin([])
-      assert conn.assigns.current_admin.id == admin.id
+    test "assigns the operator from a valid session", %{conn: conn, operator: operator} do
+      conn =
+        conn
+        |> put_session("operator", Map.from_struct(operator))
+        |> AdminAuth.fetch_current_admin([])
+
+      assert conn.assigns.current_admin.principal_id == operator.principal_id
+      assert conn.assigns.current_admin.role == "admin"
     end
 
     test "assigns nil without a session", %{conn: conn} do
@@ -25,15 +36,26 @@ defmodule FleetPulseWeb.AdminAuthTest do
       assert conn.assigns.current_admin == nil
     end
 
-    test "assigns nil when the id points at nobody", %{conn: conn} do
-      conn = conn |> put_session("admin_id", 999_999_999) |> AdminAuth.fetch_current_admin([])
+    test "assigns nil for a session written in the old shape", %{conn: conn} do
+      conn = conn |> put_session("operator", %{admin_id: 3}) |> AdminAuth.fetch_current_admin([])
+      assert conn.assigns.current_admin == nil
+    end
+
+    test "assigns nil for a session whose role is not admin", %{conn: conn, operator: operator} do
+      conn =
+        conn
+        |> put_session("operator", operator |> Map.from_struct() |> Map.put(:role, "seller"))
+        |> AdminAuth.fetch_current_admin([])
+
       assert conn.assigns.current_admin == nil
     end
   end
 
   describe "require_authenticated_admin/2" do
-    test "lets an authenticated admin through", %{conn: conn, admin: admin} do
-      conn = conn |> assign(:current_admin, admin) |> AdminAuth.require_authenticated_admin([])
+    test "lets an authenticated operator through", %{conn: conn, operator: operator} do
+      conn =
+        conn |> assign(:current_admin, operator) |> AdminAuth.require_authenticated_admin([])
+
       refute conn.halted
     end
 

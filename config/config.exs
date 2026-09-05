@@ -1,10 +1,3 @@
-# This file is responsible for configuring your application
-# and its dependencies with the aid of the Config module.
-#
-# This configuration file is loaded before any dependency and
-# is restricted to this project.
-
-# General application configuration
 import Config
 
 config :fleet_pulse, start_grpc_server: true
@@ -13,7 +6,6 @@ config :fleet_pulse,
   ecto_repos: [FleetPulse.Repo],
   generators: [timestamp_type: :utc_datetime]
 
-# Configure the endpoint
 config :fleet_pulse, FleetPulseWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
@@ -46,26 +38,15 @@ config :fleet_pulse, FleetPulse.Tracking.PingRetention,
 config :fleet_pulse, FleetPulseWeb.Plugs.RateLimit,
   enabled: true,
   scale_ms: 60_000,
-  login: 5,
   register: 3
 
 config :fleet_pulse, FleetPulseWeb.DispatchLive, flush_interval_ms: 500
 
-# Configure LiveView
 config :phoenix_live_view,
-  # the attribute set on all root tags. Used for Phoenix.LiveView.ColocatedCSS.
   root_tag_attribute: "phx-r"
 
-# Configure the mailer
-#
-# By default it uses the "Local" adapter which stores the emails
-# locally. You can see the emails in your browser, at "/dev/mailbox".
-#
-# For production it's recommended to configure a different adapter
-# at the `config/runtime.exs`.
 config :fleet_pulse, FleetPulse.Mailer, adapter: Swoosh.Adapters.Local
 
-# Configure esbuild (the version is required)
 config :esbuild,
   version: "0.25.4",
   fleet_pulse: [
@@ -75,7 +56,6 @@ config :esbuild,
     env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
   ]
 
-# Configure tailwind (the version is required)
 config :tailwind,
   version: "4.3.0",
   fleet_pulse: [
@@ -87,14 +67,10 @@ config :tailwind,
     env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
   ]
 
-# Configure Elixir's Logger
 config :logger, :default_formatter,
   format: "$time $metadata[$level] $message\n",
   metadata: [:request_id]
 
-# Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
-# Import environment specific config. This must remain at the bottom
-# of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

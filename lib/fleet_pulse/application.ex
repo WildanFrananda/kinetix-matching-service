@@ -13,7 +13,8 @@ defmodule FleetPulse.Application do
         {DNSCluster, query: Application.get_env(:fleet_pulse, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: FleetPulse.PubSub},
         FleetPulse.Tracking.Supervisor,
-        {FleetPulse.RateLimit, clean_period: :timer.minutes(10)}
+        {FleetPulse.RateLimit, clean_period: :timer.minutes(10)},
+        FleetPulse.Security.TokenVerifier
       ] ++ grpc_children() ++ redispatcher() ++ [FleetPulseWeb.Endpoint]
 
     opts = [strategy: :one_for_one, name: FleetPulse.Supervisor]
@@ -31,15 +32,26 @@ defmodule FleetPulse.Application do
   defp grpc_children do
     if Application.get_env(:fleet_pulse, :start_grpc_server, true) do
       grpc_port = String.to_integer(System.fetch_env!("GRPC_PORT"))
+      FleetPulse.Security.PeerAuthorizationInterceptor.load_allowed_callers!()
 
       [
         {GRPC.Server.Supervisor,
-         endpoint: FleetPulse.GrpcEndpoint, port: grpc_port, start_server: true},
+         endpoint: FleetPulse.GrpcEndpoint,
+         port: grpc_port,
+         start_server: true,
+         adapter_opts: [cred: grpc_credentials()]},
         GrpcReflection
       ]
     else
       []
     end
+  end
+
+  @spec grpc_credentials() :: GRPC.Credential.t()
+  defp grpc_credentials do
+    FleetPulse.Security.ServiceIdentity.load!()
+    |> FleetPulse.Security.ServiceIdentity.server_options()
+    |> then(&GRPC.Credential.new(ssl: &1))
   end
 
   @spec redispatcher() :: [FleetPulse.Dispatch.ReDispatcher]

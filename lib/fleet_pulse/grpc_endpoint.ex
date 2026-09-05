@@ -4,6 +4,8 @@ defmodule FleetPulse.GrpcEndpoint do
   """
   use GRPC.Endpoint
 
+  intercept FleetPulse.Security.PeerAuthorizationInterceptor
+
   run FleetPulse.CourierTelemetryServer
   run FleetPulse.Servers.ShippingServer
   run FleetPulse.GrpcReflectionServer
