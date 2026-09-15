@@ -20,6 +20,7 @@ defmodule FleetPulse.Security.ServiceIdentity do
   @spec load!(Path.t() | nil) :: t()
   def load!(dir \\ nil) do
     dir = dir || System.get_env("KINETIX_PKI_DIR") || "/pki"
+
     identity = %__MODULE__{
       cert: Path.join(dir, "tls.crt"),
       key: Path.join(dir, "tls.key"),

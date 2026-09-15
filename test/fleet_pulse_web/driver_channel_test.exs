@@ -4,9 +4,9 @@ defmodule FleetPulseWeb.DriverChannelTest do
   import FleetPulse.TrackingFixtures
 
   alias FleetPulse.Dispatch
+  alias FleetPulse.IdentityJwks
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.StateCache
-  alias FleetPulse.IdentityJwks
   alias FleetPulseWeb.DriverSocket
 
   defp linked_driver(overrides \\ %{}) do

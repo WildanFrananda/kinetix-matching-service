@@ -2,6 +2,9 @@ defmodule FleetPulse.Application do
   @moduledoc false
   use Application
 
+  alias FleetPulse.Security.PeerAuthorizationInterceptor
+  alias FleetPulse.Security.ServiceIdentity
+
   @typep child :: Supervisor.child_spec() | {module(), term()} | module()
 
   @impl true
@@ -26,7 +29,7 @@ defmodule FleetPulse.Application do
 
   @spec start_grpc_server() :: Supervisor.on_start()
   def start_grpc_server do
-    FleetPulse.Security.PeerAuthorizationInterceptor.load_allowed_callers!()
+    PeerAuthorizationInterceptor.load_allowed_callers!()
 
     GRPC.Server.Supervisor.start_link(
       endpoint: FleetPulse.GrpcEndpoint,
@@ -90,8 +93,8 @@ defmodule FleetPulse.Application do
 
   @spec grpc_credentials() :: GRPC.Credential.t()
   defp grpc_credentials do
-    FleetPulse.Security.ServiceIdentity.load!()
-    |> FleetPulse.Security.ServiceIdentity.server_options()
+    ServiceIdentity.load!()
+    |> ServiceIdentity.server_options()
     |> then(&GRPC.Credential.new(ssl: &1))
   end
 

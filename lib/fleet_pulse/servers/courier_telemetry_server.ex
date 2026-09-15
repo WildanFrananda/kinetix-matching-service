@@ -14,7 +14,9 @@ defmodule FleetPulse.CourierTelemetryServer do
           GRPC.Server.Stream.t()
         ) :: FleetPulse.Proto.Fleet.V1.DispatchCourierResponse.t()
   def dispatch_courier(request, _stream) do
-    Logger.info("[FleetPulse gRPC Server] Received DispatchCourier for Order #{request.order_number} (ID: #{request.order_id})")
+    Logger.info(
+      "[FleetPulse gRPC Server] Received DispatchCourier for Order #{request.order_number} (ID: #{request.order_id})"
+    )
 
     case Dispatch.assign_order(String.to_integer(request.order_id)) do
       {:ok, order, driver} ->

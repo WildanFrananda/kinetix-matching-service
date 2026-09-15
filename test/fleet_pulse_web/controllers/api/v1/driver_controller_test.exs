@@ -8,6 +8,7 @@ defmodule FleetPulseWeb.Api.V1.DriverControllerTest do
 
   setup %{conn: conn} do
     Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
+
     conn =
       conn
       |> authenticate(role: "seller")

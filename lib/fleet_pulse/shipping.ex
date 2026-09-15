@@ -38,6 +38,7 @@ defmodule FleetPulse.Shipping do
 
   defp build_instant_option(dist_km, weight_kg) do
     is_available = dist_km <= 15.0 && weight_kg <= 10.0
+
     reason =
       cond do
         dist_km > 15.0 -> "Distance exceeds 15km limit"
@@ -45,7 +46,7 @@ defmodule FleetPulse.Shipping do
         true -> nil
       end
 
-    base_fee = 15_000.0 + (dist_km * 3_000.0)
+    base_fee = 15_000.0 + dist_km * 3_000.0
 
     %{
       service_tier: "KINETIX_INSTANT",
@@ -60,6 +61,7 @@ defmodule FleetPulse.Shipping do
 
   defp build_sameday_option(dist_km, weight_kg) do
     is_available = dist_km <= 30.0 && weight_kg <= 20.0
+
     reason =
       cond do
         dist_km > 30.0 -> "Distance exceeds 30km limit"
@@ -67,7 +69,7 @@ defmodule FleetPulse.Shipping do
         true -> nil
       end
 
-    base_fee = 12_000.0 + (dist_km * 2_000.0)
+    base_fee = 12_000.0 + dist_km * 2_000.0
 
     %{
       service_tier: "KINETIX_SAMEDAY",
@@ -82,6 +84,7 @@ defmodule FleetPulse.Shipping do
 
   defp build_regular_option(dist_km, weight_kg) do
     is_available = dist_km <= 500.0 && weight_kg <= 30.0
+
     reason =
       cond do
         dist_km > 500.0 -> "Distance exceeds 500km limit"
@@ -90,7 +93,7 @@ defmodule FleetPulse.Shipping do
       end
 
     hundred_km_units = max(1.0, Float.round(dist_km / 100.0, 1))
-    base_fee = 9_000.0 + (weight_kg * 1_500.0 * hundred_km_units)
+    base_fee = 9_000.0 + weight_kg * 1_500.0 * hundred_km_units
 
     %{
       service_tier: "KINETIX_REGULAR",
@@ -107,7 +110,7 @@ defmodule FleetPulse.Shipping do
     is_available = weight_kg >= 10.0
     reason = if weight_kg < 10.0, do: "Cargo is reserved for packages >= 10kg", else: nil
 
-    base_fee = 25_000.0 + (weight_kg * 1_000.0)
+    base_fee = 25_000.0 + weight_kg * 1_000.0
 
     %{
       service_tier: "KINETIX_CARGO",
