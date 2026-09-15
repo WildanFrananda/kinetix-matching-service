@@ -28,7 +28,9 @@ defmodule FleetPulseWeb.Api.V1.MerchantOrderControllerTest do
       conn = post(conn, ~p"/api/v1/merchant/orders", params)
       body = json_response(conn, 201)
 
-      assert %{"id" => id, "status" => "pending", "merchant_principal_id" => @merchant_principal} = body["data"]
+      assert %{"id" => id, "status" => "pending", "merchant_principal_id" => @merchant_principal} =
+               body["data"]
+
       assert body["data"]["pickup"]["latitude"] == -6.2000
       assert body["data"]["dropoff"]["longitude"] == 106.8200
       assert is_integer(id)

@@ -51,7 +51,12 @@ defmodule FleetPulse.Security.PeerAuthorizationInterceptor do
   end
 
   @impl GRPC.Server.Interceptor
-  @spec call(struct() | nil, GRPC.Server.Stream.t(), (struct() | nil, GRPC.Server.Stream.t() -> any()), keyword()) ::
+  @spec call(
+          struct() | nil,
+          GRPC.Server.Stream.t(),
+          (struct() | nil, GRPC.Server.Stream.t() -> any()),
+          keyword()
+        ) ::
           any()
   def call(req, stream, next, _opts) do
     case peer_service(stream) do

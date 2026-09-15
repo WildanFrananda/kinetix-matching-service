@@ -44,7 +44,6 @@ defmodule FleetPulse.Security.TokenVerifier do
   @spec refresh!() :: non_neg_integer()
   def refresh!, do: GenServer.call(__MODULE__, :refresh, 15_000)
 
-
   @impl GenServer
   def init(_opts) do
     {:ok, %{keys: %{}, url: require_env("IDENTITY_JWKS_URL"), failures: 0, open_until: nil}}

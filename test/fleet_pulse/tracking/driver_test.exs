@@ -4,11 +4,12 @@ defmodule FleetPulse.Tracking.DriverTest do
 
   describe "validations" do
     test "valid with required attributes" do
-      cs = Driver.changeset(%Driver{}, %{
-        name: "Test Driver",
-        phone: "0812345678",
-        vehicle_plate: "B 1234 KIN"
-      })
+      cs =
+        Driver.changeset(%Driver{}, %{
+          name: "Test Driver",
+          phone: "0812345678",
+          vehicle_plate: "B 1234 KIN"
+        })
 
       assert cs.valid?
     end

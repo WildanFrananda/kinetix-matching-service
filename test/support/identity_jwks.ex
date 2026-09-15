@@ -61,14 +61,17 @@ defmodule FleetPulse.IdentityJwks do
     @moduledoc false
     @behaviour Elixir.Plug
 
+    # Elixir.Plug.Conn, because this module is itself called Plug and would otherwise shadow it.
+    alias Elixir.Plug.Conn
+
     @impl Elixir.Plug
     def init(document), do: document
 
     @impl Elixir.Plug
     def call(conn, document) do
       conn
-      |> Elixir.Plug.Conn.put_resp_content_type("application/json")
-      |> Elixir.Plug.Conn.send_resp(200, Jason.encode!(document))
+      |> Conn.put_resp_content_type("application/json")
+      |> Conn.send_resp(200, Jason.encode!(document))
     end
   end
 end

@@ -1,0 +1,90 @@
+name: CI
+
+# matching had no CI at all until now, which is why nothing caught a red suite or a formatting drift
+# before a merge. (kinetix-infrastructure/docs/STAGING-DEPLOYMENT-PLAN.md §5, item 6)
+#
+# `mix test` is an alias here: it runs `ecto.create` and `ecto.migrate` first, so the Postgres service
+# below is what the suite actually needs. config/test.exs reads DB_USERNAME and DB_PASSWORD with
+# `fetch_env!` — no defaults — so both are set, with values that plainly belong to a throwaway
+# container and nowhere else.
+#
+# Dialyzer is in the repo's own `precommit` alias but not here: building its PLT costs minutes on a
+# cold runner. It belongs in a scheduled job once the suite is green and the cache is warm.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci-ephemeral-not-a-deployed-credential
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U ci"
+          --health-interval=10s --health-timeout=5s --health-retries=5
+
+    env:
+      MIX_ENV: test
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      DB_USERNAME: ci
+      DB_PASSWORD: ci-ephemeral-not-a-deployed-credential
+      TEST_DB_NAME: kinetix_matching_test
+
+    steps:
+      - uses: actions/checkout@v6
+
+      # The versions the Dockerfile builds with, so a green suite means the shipped image compiles.
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.20.2"
+          otp-version: "29.0.3"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ hashFiles('mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-
+
+      - run: mix deps.get
+
+      # The wire contracts are deliberately absent from this repository: bin/sync-contracts fetches them at
+      # a pinned commit and protoc generates the Elixir the servers compile against. The Dockerfile does
+      # exactly this, and CI has to as well — without it every compile dies on an undefined Proto module,
+      # which is how this job failed on its first run.
+      - name: Fetch the contracts and generate from them
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq protobuf-compiler libprotobuf-dev
+          sh bin/sync-contracts
+          mix escript.install hex protobuf --force
+          mkdir -p lib/fleet_pulse/proto
+          PATH="$PATH:$HOME/.mix/escripts" protoc \
+            --elixir_out=plugins=grpc,package_prefix=fleet_pulse.proto:lib/fleet_pulse/proto \
+            -I .contracts/proto \
+            -I "$(dpkg -L libprotobuf-dev | grep -m1 'timestamp.proto' | sed 's|/google/protobuf/timestamp.proto||')" \
+            .contracts/proto/common/v1/common.proto \
+            .contracts/proto/fleet/v1/fleet.proto \
+            .contracts/proto/shipping/v1/shipping.proto
+          test -n "$(find lib/fleet_pulse/proto -name '*.pb.ex' | head -1)" \
+            || { echo "protoc produced no Elixir; the suite would run without wire types"; exit 1; }
+
+      # A warning is a defect here: the release build in the Dockerfile compiles the same code.
+      - run: mix compile --warnings-as-errors
+
+      - run: mix format --check-formatted
+
+      - run: mix credo --strict
+
+      - run: mix test

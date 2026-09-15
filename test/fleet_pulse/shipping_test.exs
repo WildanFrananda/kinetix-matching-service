@@ -21,7 +21,8 @@ defmodule FleetPulse.ShippingTest do
 
     test "marks instant option unavailable when distance exceeds 15km" do
       origin = %{latitude: -6.2088, longitude: 106.8456}
-      destination = %{latitude: -6.5000, longitude: 106.8800} # > 30km
+      # > 30km
+      destination = %{latitude: -6.5000, longitude: 106.8800}
       weight_kg = 2.5
 
       res = Shipping.calculate_options(origin, destination, weight_kg)

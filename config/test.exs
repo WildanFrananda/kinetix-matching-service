@@ -5,7 +5,9 @@ config :fleet_pulse, FleetPulse.Repo,
   password: System.fetch_env!("DB_PASSWORD"),
   hostname: System.get_env("DB_HOST") || "localhost",
   port: String.to_integer(System.get_env("DB_PORT") || "5432"),
-  database: (System.get_env("TEST_DB_NAME") || "kinetix_matching_test") <> (System.get_env("MIX_TEST_PARTITION") || ""),
+  database:
+    (System.get_env("TEST_DB_NAME") || "kinetix_matching_test") <>
+      (System.get_env("MIX_TEST_PARTITION") || ""),
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: System.schedulers_online() * 2
 

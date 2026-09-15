@@ -7,11 +7,15 @@ defmodule FleetPulseWeb.Api.V1.ShippingController do
 
   alias FleetPulse.Shipping
 
-  def options(conn, %{
-        "origin" => %{"latitude" => o_lat, "longitude" => o_lng},
-        "destination" => %{"latitude" => d_lat, "longitude" => d_lng},
-        "total_weight_kg" => weight
-      } = params) do
+  @spec options(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def options(
+        conn,
+        %{
+          "origin" => %{"latitude" => o_lat, "longitude" => o_lng},
+          "destination" => %{"latitude" => d_lat, "longitude" => d_lng},
+          "total_weight_kg" => weight
+        } = params
+      ) do
     o_lat_f = to_float(o_lat)
     o_lng_f = to_float(o_lng)
     d_lat_f = to_float(d_lat)
@@ -31,17 +35,20 @@ defmodule FleetPulseWeb.Api.V1.ShippingController do
     |> put_status(422)
     |> json(%{
       error: "UNPROCESSABLE_ENTITY",
-      message: "Required parameters: origin (latitude, longitude), destination (latitude, longitude), total_weight_kg"
+      message:
+        "Required parameters: origin (latitude, longitude), destination (latitude, longitude), total_weight_kg"
     })
   end
 
   defp to_float(val) when is_float(val), do: val
   defp to_float(val) when is_integer(val), do: val / 1.0
+
   defp to_float(val) when is_binary(val) do
     case Float.parse(val) do
       {f, _} -> f
       :error -> 0.0
     end
   end
+
   defp to_float(_), do: 0.0
 end

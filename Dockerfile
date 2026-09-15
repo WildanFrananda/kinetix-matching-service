@@ -109,7 +109,12 @@ RUN mix release
 # the compiled release and other runtime necessities
 FROM ${RUNNER_IMAGE} AS final
 
+# `upgrade` as well as `install`: DEBIAN_VERSION pins a dated snapshot, and a dated snapshot by definition
+# stops receiving security updates. CI's image scan fails the build on a CRITICAL that Debian has already
+# fixed — perl-base on the first run — and this is where that fix arrives. The pin still decides which
+# Debian ships.
 RUN apt-get update \
+  && apt-get upgrade -y --no-install-recommends \
   && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses6 locales ca-certificates curl \
   && rm -rf /var/lib/apt/lists/*
 
