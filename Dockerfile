@@ -61,6 +61,30 @@ RUN mix deps.compile
 
 RUN mix assets.setup
 
+COPY bin ./bin
+
+# The wire contracts and the Elixir generated from them. Both are build outputs now: the .proto
+# came from a copy in this repository and the .pb.ex was committed beside it, so a field renamed
+# in the contract changed nothing here until somebody noticed.
+#
+# `package_prefix` keeps the module names the server code already uses
+# (FleetPulse.Proto.Fleet.V1.*), so this is a change of SOURCE, not a rename of everything.
+RUN apt-get update \
+  && apt-get install --no-install-recommends -y git protobuf-compiler libprotobuf-dev \
+  && rm -rf /var/lib/apt/lists/* \
+  && sh bin/sync-contracts \
+  && mix escript.install hex protobuf --force \
+  && mkdir -p lib/fleet_pulse/proto \
+  && PATH="$PATH:/root/.mix/escripts" protoc \
+       --elixir_out=plugins=grpc,package_prefix=fleet_pulse.proto:lib/fleet_pulse/proto \
+       -I .contracts/proto \
+       -I "$(dpkg -L libprotobuf-dev 2>/dev/null | grep -m1 'timestamp.proto' | sed 's|/google/protobuf/timestamp.proto||')" \
+       .contracts/proto/common/v1/common.proto \
+       .contracts/proto/fleet/v1/fleet.proto \
+       .contracts/proto/shipping/v1/shipping.proto \
+  && test -n "$(find lib/fleet_pulse/proto -name '*.pb.ex' | head -1)" \
+     || { echo 'protoc produced no Elixir; the build would ship without wire types'; exit 1; }
+
 COPY priv priv
 
 COPY lib lib
@@ -86,7 +110,7 @@ RUN mix release
 FROM ${RUNNER_IMAGE} AS final
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses6 locales ca-certificates \
+  && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses6 locales ca-certificates curl \
   && rm -rf /var/lib/apt/lists/*
 
 # Set the locale
@@ -107,5 +131,13 @@ ENV MIX_ENV="prod"
 COPY --from=builder --chown=nobody:root /app/_build/${MIX_ENV}/rel/fleet_pulse ./
 
 USER nobody
+
+
+# Probe the endpoint the service actually ships. This used to run `Repo.query!("SELECT 1")` over
+# `fleet_pulse rpc`, which asked the same question of the database but never touched /health/ready
+# — so the endpoint every other service is probed on sat unexercised here and could rot unnoticed.
+# curl is in the runner image for this one purpose.
+HEALTHCHECK --interval=10s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:4000/health/ready > /dev/null || exit 1
 
 CMD ["/app/bin/server"]

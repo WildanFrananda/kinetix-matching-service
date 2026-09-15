@@ -1,38 +1,49 @@
 defmodule FleetPulseWeb.DriverSocket do
   @moduledoc """
   The websocket a driver's mobile app connects to.
-
-  Authentication happens once, here, at connect time — not per message. The
-  verified driver id is stashed in socket assigns and is the ONLY identity the
-  channel trusts afterwards.
   """
 
   use Phoenix.Socket
 
-  alias FleetPulseWeb.DriverToken
+  alias FleetPulse.Security.AccessClaims
+  alias FleetPulse.Security.TokenVerifier
+  alias FleetPulse.Tracking
 
   channel "driver:*", FleetPulseWeb.DriverChannel
 
+  @type error ::
+          :invalid_token
+          | :malformed_claims
+          | :not_a_courier
+          | :unlinked
+          | :missing_token
+          | :identity_unavailable
+
   @impl Phoenix.Socket
   @spec connect(map(), Phoenix.Socket.t(), map()) ::
-          {:ok, Phoenix.Socket.t()} | {:error, DriverToken.error() | :missing_token}
-  def connect(%{"token" => token}, socket, _connect_info) do
-    case DriverToken.verify(token) do
-      {:ok, driver_id} -> {:ok, assign(socket, :driver_id, driver_id)}
+          {:ok, Phoenix.Socket.t()} | {:error, error()}
+  def connect(%{"token" => token}, socket, _connect_info) when is_binary(token) do
+    with {:ok, %AccessClaims{} = claims} <- TokenVerifier.verify_access(token),
+         :ok <- courier?(claims),
+         {:ok, driver} <- Tracking.driver_for_principal(claims.principal_id) do
+      {:ok, assign(socket, :driver_id, driver.id)}
+    else
       {:error, reason} -> {:error, reason}
     end
   end
 
   def connect(_params, _socket, _connect_info), do: {:error, :missing_token}
 
-  @doc """
-  Identifies every socket belonging to one driver.
+  @spec handle_error(Plug.Conn.t(), error()) :: Plug.Conn.t()
+  def handle_error(conn, :identity_unavailable), do: Plug.Conn.send_resp(conn, 503, "")
+  def handle_error(conn, _reason), do: Plug.Conn.send_resp(conn, 403, "")
 
-  Returning a stable id lets the server force-disconnect a driver from
-  anywhere — `FleetPulseWeb.Endpoint.broadcast("driver_socket:7", "disconnect", %{})`
-  — which is what you reach for when a token is revoked.
-  """
   @impl Phoenix.Socket
   @spec id(Phoenix.Socket.t()) :: String.t()
   def id(socket), do: "driver_socket:#{socket.assigns.driver_id}"
+
+  @spec courier?(AccessClaims.t()) :: :ok | {:error, :not_a_courier}
+  defp courier?(%AccessClaims{role: "courier"}), do: :ok
+  defp courier?(%AccessClaims{role: "admin"}), do: :ok
+  defp courier?(_claims), do: {:error, :not_a_courier}
 end

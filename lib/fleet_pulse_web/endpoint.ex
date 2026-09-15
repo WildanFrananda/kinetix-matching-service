@@ -1,6 +1,8 @@
 defmodule FleetPulseWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :fleet_pulse
 
+  @before_compile FleetPulseWeb.HttpMetrics
+
   @session_options [
     store: :cookie,
     key: "_fleet_pulse_key",
@@ -8,17 +10,28 @@ defmodule FleetPulseWeb.Endpoint do
     same_site: "Lax"
   ]
 
+  @drainer [batch_size: 1_000, batch_interval: 1_000, shutdown: 8_000]
+
   socket "/live", Phoenix.LiveView.Socket,
     websocket: [connect_info: [session: @session_options]],
-    longpoll: [connect_info: [session: @session_options]]
+    longpoll: [connect_info: [session: @session_options]],
+    drainer: @drainer
 
   socket "/driver", FleetPulseWeb.DriverSocket,
-    websocket: [connect_info: [:peer_data, :user_agent]],
-    longpoll: false
+    websocket: [
+      connect_info: [:peer_data, :user_agent],
+      error_handler: {FleetPulseWeb.DriverSocket, :handle_error, []}
+    ],
+    longpoll: false,
+    drainer: @drainer
 
   socket "/merchant", FleetPulseWeb.MerchantSocket,
-    websocket: [connect_info: [:peer_data, :user_agent]],
-    longpoll: false
+    websocket: [
+      connect_info: [:peer_data, :user_agent],
+      error_handler: {FleetPulseWeb.MerchantSocket, :handle_error, []}
+    ],
+    longpoll: false,
+    drainer: @drainer
 
   plug Plug.Static,
     at: "/",

@@ -17,14 +17,15 @@ defmodule FleetPulseWeb.Router do
     plug :accepts, ["json"]
   end
 
-  pipeline :partner_api do
+  pipeline :authenticated_api do
     plug :accepts, ["json"]
-    plug FleetPulseWeb.Plugs.ApiKeyAuth
+    plug FleetPulseWeb.Plugs.IdentityAuth
   end
 
   scope "/", FleetPulseWeb do
     get "/health", HealthController, :live
     get "/health/ready", HealthController, :ready
+    get "/metrics", MetricsController, :index
   end
 
   scope "/", FleetPulseWeb do
@@ -45,42 +46,37 @@ defmodule FleetPulseWeb.Router do
     end
   end
 
-  scope "/", FleetPulseWeb do
-    pipe_through [:api, :throttle_login]
-    post "/driver/session", DriverSessionController, :create
-  end
 
   scope "/", FleetPulseWeb do
     pipe_through [:api, :throttle_register]
     post "/driver/register", DriverRegistrationController, :create
   end
 
-  pipeline :throttle_login do
-    plug FleetPulseWeb.Plugs.RateLimit, bucket: :login
-  end
-
   pipeline :throttle_register do
     plug FleetPulseWeb.Plugs.RateLimit, bucket: :register
   end
 
+  pipeline :fleet_reader do
+    plug FleetPulseWeb.Plugs.RequireRole, ["seller", "admin"]
+  end
+
   scope "/api/v1", FleetPulseWeb.Api.V1, as: :api_v1 do
-    pipe_through :partner_api
+    pipe_through [:authenticated_api, :fleet_reader]
 
     get "/drivers", DriverController, :index
     get "/drivers/nearby", DriverController, :nearby
     get "/drivers/:id", DriverController, :show
     get "/orders/:id", OrderController, :show
     post "/merchant/orders", MerchantOrderController, :create
+  end
+
+  scope "/api/v1", FleetPulseWeb.Api.V1, as: :api_v1 do
+    pipe_through :authenticated_api
+
     post "/shipping/options", ShippingController, :options
   end
 
-  # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:fleet_pulse, :dev_routes) do
-    # If you want to use the LiveDashboard in production, you should put
-    # it behind authentication and allow only admins to access it.
-    # If your application does not have an admins-only section yet,
-    # you can use Plug.BasicAuth to set up some basic authentication
-    # as long as you are also using SSL (which you should anyway).
     import Phoenix.LiveDashboard.Router
 
     scope "/dev" do

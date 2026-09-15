@@ -266,31 +266,32 @@ defmodule FleetPulse.TrackingTest do
     end
   end
 
-  describe "authenticate_driver/2" do
-    setup %{driver: driver} do
-      {:ok, driver} = Tracking.set_driver_password(driver, "fixture-only-never-a-real-credential")
-      %{driver: driver}
+  describe "driver_for_principal/1" do
+    setup do
+      principal = "principal-#{System.unique_integer([:positive])}"
+      {:ok, linked} = Tracking.link_driver_to_principal(driver_fixture(), principal)
+      %{linked: linked, principal: principal}
     end
 
-    test "returns the driver for correct credentials", %{driver: driver} do
-      assert {:ok, found} = Tracking.authenticate_driver(driver.phone, "fixture-only-never-a-real-credential")
-      assert found.id == driver.id
+    test "finds the driver its principal names", %{linked: linked, principal: principal} do
+      assert {:ok, found} = Tracking.driver_for_principal(principal)
+      assert found.id == linked.id
     end
 
-    test "rejects a wrong password", %{driver: driver} do
-      assert {:error, :invalid_credentials} = Tracking.authenticate_driver(driver.phone, "wrong")
+    test "refuses a principal linked to nothing" do
+      assert {:error, :unlinked} = Tracking.driver_for_principal("principal-nobody")
     end
 
-    test "rejects an unknown phone" do
-      assert {:error, :invalid_credentials} =
-               Tracking.authenticate_driver("089999999999", "fixture-only-never-a-real-credential")
+    test "refuses an empty principal, which is what an unlinked row holds" do
+      assert {:error, :unlinked} = Tracking.driver_for_principal("")
     end
 
-    test "rejects a driver who has no password set" do
-      other = driver_fixture()
+    test "refuses a driver that has not been approved" do
+      principal = "principal-pending-#{System.unique_integer([:positive])}"
+      {:ok, pending} = Tracking.register_driver(driver_attrs())
+      {:ok, _linked} = Tracking.link_driver_to_principal(pending, principal)
 
-      assert {:error, :invalid_credentials} =
-               Tracking.authenticate_driver(other.phone, "fixture-only-never-a-real-credential")
+      assert {:error, :unlinked} = Tracking.driver_for_principal(principal)
     end
   end
 end
