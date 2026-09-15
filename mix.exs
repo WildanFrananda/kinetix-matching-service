@@ -82,17 +82,19 @@ defmodule FleetPulse.MixProject do
       {:swoosh, "~> 1.16"},
       {:req, "~> 0.5"},
       {:telemetry_metrics, "~> 1.0"},
+      {:telemetry_metrics_prometheus_core, "~> 1.2"},
       {:telemetry_poller, "~> 1.0"},
       {:gettext, "~> 1.0"},
       {:jason, "~> 1.2"},
       {:bcrypt_elixir, "~> 3.0"},
+      {:joken, "~> 2.6"},
       {:hammer, "~> 7.0"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
-      {:grpc, "~> 0.9"},
+      {:grpc, "~> 1.0"},
+      {:grpc_reflection, "~> 0.5"},
       {:protobuf, "~> 0.13"},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
-
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
   end

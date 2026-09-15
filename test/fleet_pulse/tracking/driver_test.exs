@@ -14,16 +14,19 @@ defmodule FleetPulse.Tracking.DriverTest do
     end
   end
 
-  describe "valid_password?/2" do
-    test "true for the right password, false for the wrong one" do
-      driver = %Driver{hashed_password: Bcrypt.hash_pwd_salt("fixture-only-never-a-real-credential")}
+  describe "principal_changeset/2" do
+    test "links a driver to an identity principal" do
+      changeset = Driver.principal_changeset(%Driver{}, %{principal_id: "abc-123"})
 
-      assert Driver.valid_password?(driver, "fixture-only-never-a-real-credential")
-      refute Driver.valid_password?(driver, "nope")
+      assert changeset.valid?
+      assert Ecto.Changeset.get_change(changeset, :principal_id) == "abc-123"
     end
 
-    test "false when the driver has no password set" do
-      refute Driver.valid_password?(%Driver{hashed_password: nil}, "anything")
+    test "refuses a link with no principal" do
+      changeset = Driver.principal_changeset(%Driver{}, %{})
+
+      refute changeset.valid?
+      assert {"can't be blank", _meta} = changeset.errors[:principal_id]
     end
   end
 end

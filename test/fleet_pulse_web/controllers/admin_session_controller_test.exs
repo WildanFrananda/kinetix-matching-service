@@ -1,12 +1,6 @@
 defmodule FleetPulseWeb.AdminSessionControllerTest do
   use FleetPulseWeb.ConnCase, async: true
 
-  import FleetPulse.AccountsFixtures
-
-  setup do
-    %{admin: admin_fixture()}
-  end
-
   describe "GET /admin/log_in" do
     test "renders the login form", %{conn: conn} do
       assert html_response(get(conn, ~p"/admin/log_in"), 200) =~ "Log in"
@@ -14,32 +8,29 @@ defmodule FleetPulseWeb.AdminSessionControllerTest do
   end
 
   describe "POST /admin/log_in" do
-    test "logs in with valid credentials", %{conn: conn, admin: admin} do
+    test "answers 503 rather than a session when identity cannot be reached", %{conn: conn} do
       conn =
         post(conn, ~p"/admin/log_in", %{
-          "admin" => %{"email" => admin.email, "password" => "fixture-only-never-a-real-credential"}
+          "admin" => %{"email" => "operator@kinetix.test", "password" => "whatever"}
         })
 
-      assert get_session(conn, "admin_id") == admin.id
-      assert redirected_to(conn) == ~p"/dispatch"
+      assert html_response(conn, 503) =~ "temporarily unavailable"
+      refute get_session(conn, "operator")
     end
 
-    test "rejects a wrong password without a session", %{conn: conn, admin: admin} do
-      conn =
-        post(conn, ~p"/admin/log_in", %{
-          "admin" => %{"email" => admin.email, "password" => "wrong"}
-        })
+    test "opens no session for a malformed post", %{conn: conn} do
+      conn = post(conn, ~p"/admin/log_in", %{"admin" => %{"email" => "operator@kinetix.test"}})
 
       assert html_response(conn, 200) =~ "Invalid email or password"
-      refute get_session(conn, "admin_id")
+      refute get_session(conn, "operator")
     end
   end
 
   describe "DELETE /admin/log_out" do
-    test "clears the session", %{conn: conn, admin: admin} do
-      conn = conn |> log_in_admin(admin) |> delete(~p"/admin/log_out")
+    test "clears the session", %{conn: conn} do
+      conn = conn |> log_in_operator() |> delete(~p"/admin/log_out")
 
-      refute get_session(conn, "admin_id")
+      refute get_session(conn, "operator")
       assert redirected_to(conn) == ~p"/"
     end
   end
