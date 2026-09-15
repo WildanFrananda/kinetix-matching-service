@@ -1,14 +1,12 @@
 defmodule FleetPulseWeb.Api.V1.MerchantOrderControllerTest do
   use FleetPulseWeb.ConnCase, async: true
 
-  alias FleetPulse.Api
+  @merchant_principal "3c9a77b1-58de-4a01-8f2e-6d4b19c0a8f3"
 
   setup %{conn: conn} do
-    {:ok, _key, plaintext} = Api.create_key("Test Merchant")
-
     conn =
       conn
-      |> put_req_header("authorization", "Bearer #{plaintext}")
+      |> authenticate(role: "seller", sub: @merchant_principal)
       |> put_req_header("accept", "application/json")
 
     %{conn: conn}
@@ -23,14 +21,14 @@ defmodule FleetPulseWeb.Api.V1.MerchantOrderControllerTest do
           "dropoff_latitude" => -6.2100,
           "dropoff_longitude" => 106.8200,
           "weight_kg" => 12,
-          "merchant_id" => 101
+          "merchant_principal_id" => "9f1d4a3e-1c62-4d0a-9a7b-2f5c8e0b41d7"
         }
       }
 
       conn = post(conn, ~p"/api/v1/merchant/orders", params)
       body = json_response(conn, 201)
 
-      assert %{"id" => id, "status" => "pending", "merchant_id" => 101} = body["data"]
+      assert %{"id" => id, "status" => "pending", "merchant_principal_id" => @merchant_principal} = body["data"]
       assert body["data"]["pickup"]["latitude"] == -6.2000
       assert body["data"]["dropoff"]["longitude"] == 106.8200
       assert is_integer(id)
@@ -51,7 +49,7 @@ defmodule FleetPulseWeb.Api.V1.MerchantOrderControllerTest do
       assert errors["dropoff_latitude"] != nil
     end
 
-    test "returns 401 unauthorized without a valid API key" do
+    test "returns 401 unauthorized without a token" do
       params = %{
         "order" => %{
           "pickup_latitude" => -6.2000,
