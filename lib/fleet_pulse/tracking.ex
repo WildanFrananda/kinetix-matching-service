@@ -1,18 +1,6 @@
 defmodule FleetPulse.Tracking do
   @moduledoc """
   The tracking context — the only public API of the driver-telemetry domain.
-
-  Everything outside this module (channels, LiveViews, the dispatch context)
-  talks to this façade. Nothing outside it should reach for `DriverSupervisor`,
-  `DriverState`, `DriverRegistry`, `StateCache`, or `Repo` directly: those are
-  implementation details of how live state happens to be held today.
-
-  ## Where each piece of state lives
-
-    * position and telemetry — in memory only, flushed periodically by
-      `FleetPulse.Tracking.PersistenceBatcher` (PRD 5.2)
-    * availability status — written through to PostgreSQL immediately, because
-      it is low frequency and must survive a node restart
   """
 
   import Ecto.Query
@@ -27,18 +15,8 @@ defmodule FleetPulse.Tracking do
   alias FleetPulse.Tracking.Telemetry
   alias FleetPulse.Types
 
-  @typedoc "A driver and its distance from the query point, in kilometres."
   @type nearby_driver :: {DriverState.t(), float()}
 
-  @typedoc """
-  Options for `nearby/3`.
-
-    * `:status` — which availability to accept, or `:any`. Defaults to
-      `:online`, because dispatch wants drivers who can take work.
-    * `:min_capacity_kg` — reject drivers that cannot carry this load.
-      Defaults to `0`, which accepts everyone.
-    * `:limit` — keep only the N nearest. Defaults to no limit.
-  """
   @type nearby_opts :: [
           status: Driver.status() | :any,
           min_capacity_kg: non_neg_integer(),
@@ -69,11 +47,6 @@ defmodule FleetPulse.Tracking do
     |> Repo.all()
   end
 
-  @doc """
-  Starts tracking a driver, verifying the driver exists first.
-
-  Idempotent: an already-tracked driver returns its existing process.
-  """
   @spec start_tracking(Types.id()) :: {:ok, pid()} | {:error, Types.reason()}
   def start_tracking(driver_id) do
     with {:ok, _driver} <- fetch_driver(driver_id) do
@@ -93,27 +66,9 @@ defmodule FleetPulse.Tracking do
   @spec fetch_state(Types.id()) :: {:ok, DriverState.t()} | {:error, :not_found}
   def fetch_state(driver_id), do: DriverState.fetch(driver_id)
 
-  @doc """
-  Last known state of every cached driver.
-
-  Reads ETS directly, so it costs no message passing and cannot be slowed
-  down by a busy driver process — this is what the dispatch dashboard calls
-  on mount before subscribing to updates.
-  """
   @spec list_tracked() :: [DriverState.t()]
   def list_tracked, do: StateCache.all()
 
-  @doc """
-  Drivers within `radius_km` of `coordinates`, nearest first (PRD 5.3).
-
-  Runs entirely in memory: no database round trip and no message sent to any
-  driver process, so a busy driver can never slow a dispatch query down.
-
-  The work is done in two passes. `Geo.bounding_box/2` discards the vast
-  majority with four float comparisons and no trigonometry; only the survivors
-  pay for `Geo.distance_km/2`. The box is deliberately never too small, so the
-  second pass is what actually decides membership.
-  """
   @spec nearby(Types.coordinates(), float(), nearby_opts()) :: [nearby_driver()]
   def nearby(coordinates, radius_km, opts \\ []) do
     filters = %{
@@ -131,15 +86,6 @@ defmodule FleetPulse.Tracking do
     |> take(Keyword.get(opts, :limit))
   end
 
-  @doc """
-  Sets a driver's availability, writing through to the database.
-
-  The database write comes first and is authoritative: a driver marked
-  `:busy` mid-order must still be `:busy` after a node restart, and the
-  location batcher never touches the status column. Updating the live process
-  afterwards is best effort — a driver with no running process is a normal
-  situation, not a failure.
-  """
   @spec set_status(Types.id(), Driver.status()) ::
           {:ok, Driver.t()} | {:error, :not_found | Driver.changeset()}
   def set_status(driver_id, status) do
@@ -150,17 +96,6 @@ defmodule FleetPulse.Tracking do
     end
   end
 
-  @doc """
-  The driver a verified principal authenticates as.
-
-  Replaces `authenticate_driver/2`. Drivers no longer hold a password here: identity holds the
-  credential, this service holds the row, and the principal in a verified token is the link
-  between them.
-
-  An unlinked driver is unreachable over the socket until an operator links it — visible as a
-  refusal rather than as a fallback to whichever driver happened to match, and the link is only
-  ever made from a token this service verified.
-  """
   @spec driver_for_principal(String.t()) :: {:ok, Driver.t()} | {:error, :unlinked}
   def driver_for_principal(principal_id) when is_binary(principal_id) and principal_id != "" do
     case Repo.get_by(Driver, principal_id: principal_id) do
@@ -171,9 +106,6 @@ defmodule FleetPulse.Tracking do
 
   def driver_for_principal(_principal_id), do: {:error, :unlinked}
 
-  @doc """
-  Links a driver row to the identity principal that will authenticate as it (operator action).
-  """
   @spec link_driver_to_principal(Driver.t(), String.t()) ::
           {:ok, Driver.t()} | {:error, Driver.changeset()}
   def link_driver_to_principal(%Driver{} = driver, principal_id) do
@@ -182,19 +114,13 @@ defmodule FleetPulse.Tracking do
     |> Repo.update()
   end
 
-  @doc """
-  Registers a new driver with `active: false` (pending admin approval).
-  """
-  @spec register_driver(map()) :: {:ok, Driver.t()} | {:error, Driver.changeset()}
-  def register_driver(attrs) when is_map(attrs) do
+  @spec register_driver(map(), String.t()) :: {:ok, Driver.t()} | {:error, Driver.changeset()}
+  def register_driver(attrs, principal_id) when is_map(attrs) and is_binary(principal_id) do
     %Driver{}
-    |> Driver.registration_changeset(attrs)
+    |> Driver.registration_changeset(attrs, principal_id)
     |> Repo.insert()
   end
 
-  @doc """
-  Lists all drivers waiting for admin approval.
-  """
   @spec list_pending_drivers() :: [Driver.t()]
   def list_pending_drivers do
     Driver
@@ -203,9 +129,6 @@ defmodule FleetPulse.Tracking do
     |> Repo.all()
   end
 
-  @doc """
-  Approves a pending driver account.
-  """
   @spec approve_driver(Types.id()) ::
           {:ok, Driver.t()} | {:error, :not_found | Driver.changeset()}
   def approve_driver(driver_id) do
@@ -216,9 +139,6 @@ defmodule FleetPulse.Tracking do
     end
   end
 
-  @doc """
-  Rejects and removes a pending driver registration.
-  """
   @spec reject_driver(Types.id()) :: {:ok, Driver.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def reject_driver(driver_id) do
     with {:ok, driver} <- fetch_driver(driver_id) do

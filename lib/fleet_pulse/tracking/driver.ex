@@ -1,9 +1,6 @@
 defmodule FleetPulse.Tracking.Driver do
   @moduledoc """
   Pure Ecto Schema and Changeset functions for a Courier / Driver.
-
-  Encapsulates data shape, validations and status transitions. It holds no credential: identity
-  is the only service on this platform that does.
   """
 
   use Ecto.Schema
@@ -47,9 +44,6 @@ defmodule FleetPulse.Tracking.Driver do
   @spec statuses() :: [status()]
   def statuses, do: @statuses
 
-  @doc """
-  Changeset for full builds and updates.
-  """
   @spec changeset(t(), map()) :: changeset()
   def changeset(%__MODULE__{} = driver, attrs) do
     driver
@@ -64,22 +58,17 @@ defmodule FleetPulse.Tracking.Driver do
     |> check_constraint(:capacity_kg, name: :drivers_capacity_kg_non_negative)
   end
 
-  @doc """
-  Changeset for new driver registrations.
-
-  No password: identity holds the credential. Registration files the vehicle and the person; the
-  account that will drive it is linked separately, by an operator, from a verified principal.
-  """
-  @spec registration_changeset(t(), map()) :: changeset()
-  def registration_changeset(%__MODULE__{} = driver, attrs) when is_map(attrs) do
+  @spec registration_changeset(t(), map(), String.t()) :: changeset()
+  def registration_changeset(%__MODULE__{} = driver, attrs, principal_id)
+      when is_map(attrs) and is_binary(principal_id) do
     driver
     |> changeset(attrs)
     |> put_change(:active, false)
+    |> put_change(:principal_id, principal_id)
+    |> validate_required([:principal_id])
+    |> unique_constraint(:principal_id)
   end
 
-  @doc """
-  Changeset linking a driver row to the identity principal that authenticates as it.
-  """
   @spec principal_changeset(t(), map()) :: changeset()
   def principal_changeset(%__MODULE__{} = driver, attrs) do
     driver
@@ -88,9 +77,6 @@ defmodule FleetPulse.Tracking.Driver do
     |> unique_constraint(:principal_id)
   end
 
-  @doc """
-  Narrow changeset for state transitions only.
-  """
   @spec status_changeset(t(), map()) :: changeset()
   def status_changeset(%__MODULE__{} = driver, attrs) do
     driver

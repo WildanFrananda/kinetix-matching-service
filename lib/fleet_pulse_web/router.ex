@@ -46,8 +46,8 @@ defmodule FleetPulseWeb.Router do
     end
   end
 
-  scope "/", FleetPulseWeb do
-    pipe_through [:api, :throttle_register]
+  scope "/api/v1", FleetPulseWeb do
+    pipe_through [:authenticated_api, :throttle_register]
     post "/driver/register", DriverRegistrationController, :create
   end
 

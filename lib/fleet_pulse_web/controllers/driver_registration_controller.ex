@@ -5,11 +5,14 @@ defmodule FleetPulseWeb.DriverRegistrationController do
 
   use FleetPulseWeb, :controller
 
+  alias FleetPulse.Security.AccessClaims
   alias FleetPulse.Tracking
 
   @spec create(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create(conn, params) do
-    case Tracking.register_driver(params) do
+    %AccessClaims{principal_id: principal_id} = conn.assigns.current_caller
+
+    case Tracking.register_driver(params, principal_id) do
       {:ok, driver} ->
         conn
         |> put_status(:created)
