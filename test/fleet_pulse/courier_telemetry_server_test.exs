@@ -5,31 +5,25 @@ defmodule FleetPulse.CourierTelemetryServerTest do
 
   alias FleetPulse.CourierTelemetryServer
   alias FleetPulse.Dispatch
+  alias FleetPulse.Dispatch.Order
+  alias FleetPulse.FakeGeocoder
+  alias FleetPulse.Proto.Common.V1.Address
   alias FleetPulse.Proto.Fleet.V1.DispatchCourierRequest
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.StateCache
 
   @pickup {-6.1754, 106.8272}
+  @merchant "11111111-2222-3333-4444-555555555555"
 
   setup do
     Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
+    :ok = FakeGeocoder.start()
+    :ok = FakeGeocoder.reset()
+    FakeGeocoder.always({:ok, %{latitude: elem(@pickup, 0), longitude: elem(@pickup, 1)}})
     :ok
   end
 
-  defp order_attrs do
-    %{
-      pickup_latitude: elem(@pickup, 0),
-      pickup_longitude: elem(@pickup, 1),
-      dropoff_latitude: -6.9,
-      dropoff_longitude: 107.6,
-      weight_kg: 50
-    }
-  end
-
-  defp order! do
-    {:ok, order} = Dispatch.create_order(order_attrs())
-    order
-  end
+  defp order_number, do: "ORD-#{System.unique_integer([:positive])}"
 
   defp track!(driver) do
     on_exit(fn ->
@@ -56,98 +50,132 @@ defmodule FleetPulse.CourierTelemetryServerTest do
     {track!(driver), principal}
   end
 
-  defp dispatch(order_id) do
+  defp dispatch(number) do
     CourierTelemetryServer.dispatch_courier(
       %DispatchCourierRequest{
-        merchant_principal_id: "11111111-2222-3333-4444-555555555555",
-        order_id: to_string(order_id),
-        order_number: "ORD-ELIXIR-#{order_id}"
+        merchant_principal_id: @merchant,
+        order_id: "the caller's own id, not ours",
+        order_number: number,
+        pickup_address: %Address{street_address: "Gudang Kinetix, Jakarta"},
+        delivery_address: %Address{street_address: "Jl. Sudirman 5, Jakarta"}
       },
       nil
     )
   end
 
   describe "a dispatch that succeeds" do
-    test "answers with the driver's principal, which is who gets paid" do
-      {driver, principal} = payable_driver()
-      order = order!()
+    test "books a fleet job for an order number it has never seen" do
+      payable_driver()
+      number = order_number()
 
-      res = dispatch(order.id)
+      assert Repo.get_by(Order, order_number: number) == nil
 
-      assert res.success == true
-      assert res.assigned_driver_principal_id == principal
-      assert res.assigned_driver_name == driver.name
-      assert res.dispatch_ref == "DISP-#{order.id}"
+      assert dispatch(number).success == true
+
+      booked = Repo.get_by(Order, order_number: number)
+      assert booked.status == :assigned
+      assert booked.merchant_principal_id == @merchant
     end
 
-    test "writes the assignment, rather than only reporting one" do
-      {driver, _principal} = payable_driver()
-      order = order!()
+    test "answers with the driver's principal, which is who gets paid" do
+      {driver, principal} = payable_driver()
 
-      assert dispatch(order.id).success == true
+      res = dispatch(order_number())
 
-      {:ok, reloaded} = Dispatch.fetch_order(order.id)
-      assert reloaded.status == :assigned
-      assert reloaded.driver_id == driver.id
+      assert res.assigned_driver_principal_id == principal
+      assert res.assigned_driver_name == driver.name
+      assert String.starts_with?(res.dispatch_ref, "DISP-")
+    end
+
+    test "geocodes both ends, because drivers are chosen by distance" do
+      payable_driver()
+
+      dispatch(order_number())
+
+      assert "gudang kinetix, jakarta" in FakeGeocoder.calls()
+      assert "jl. sudirman 5, jakarta" in FakeGeocoder.calls()
+    end
+
+    test "a repeated dispatch finds the job it already booked" do
+      payable_driver()
+      number = order_number()
+
+      first = dispatch(number)
+      second = dispatch(number)
+
+      assert first.success == true
+      assert second.success == true
+      assert first.dispatch_ref == second.dispatch_ref
+      assert Repo.aggregate(Order, :count) == 1
     end
   end
 
   describe "a dispatch that fails" do
-    test "refuses an order that does not exist" do
-      payable_driver()
-
-      res = dispatch(999_999)
-
-      assert res.success == false
-      assert res.error.error_code == "NO_SUCH_ORDER"
-      assert res.assigned_driver_principal_id == ""
-      assert res.assigned_driver_name == ""
-      assert res.dispatch_ref == ""
-    end
-
     test "refuses when no driver is available, rather than naming an offline one" do
       _idle = driver_fixture()
-      order = order!()
 
-      res = dispatch(order.id)
+      res = dispatch(order_number())
 
       assert res.success == false
       assert res.error.error_code == "NO_DRIVER_AVAILABLE"
       assert res.assigned_driver_name == ""
+      assert res.dispatch_ref == ""
     end
 
-    test "refuses an order that already has a driver" do
+    test "refuses a dispatch that does not name an order" do
       payable_driver()
-      order = order!()
-      assert dispatch(order.id).success == true
 
-      payable_driver()
-      res = dispatch(order.id)
+      res = dispatch("   ")
 
       assert res.success == false
-      assert res.error.error_code == "ALREADY_ASSIGNED"
+      assert res.error.error_code == "BLANK_ORDER_NUMBER"
+      assert Repo.aggregate(Order, :count) == 0
     end
 
-    test "refuses an order_id that is not a number instead of raising" do
-      res =
-        CourierTelemetryServer.dispatch_courier(
-          %DispatchCourierRequest{order_id: "not-a-number", order_number: "ORD-X"},
-          nil
-        )
+    test "refuses when the address cannot be turned into a location" do
+      payable_driver()
+      FakeGeocoder.always({:error, :not_found})
+
+      res = dispatch(order_number())
 
       assert res.success == false
-      assert res.error.error_code == "INVALID_ORDER_ID"
+      assert res.error.error_code == "ADDRESS_NOT_GEOCODABLE"
+      assert Repo.aggregate(Order, :count) == 0
+    end
+
+    test "refuses when the geocoder is unreachable, rather than dispatching blind" do
+      payable_driver()
+      FakeGeocoder.always({:error, :unavailable})
+
+      res = dispatch(order_number())
+
+      assert res.success == false
+      assert res.error.error_code == "ADDRESS_NOT_GEOCODABLE"
     end
 
     test "refuses an assignment to a driver who cannot be paid" do
       track!(driver_fixture())
-      order = order!()
 
-      res = dispatch(order.id)
+      res = dispatch(order_number())
 
       assert res.success == false
       assert res.error.error_code == "DRIVER_NOT_PAYABLE"
       assert res.assigned_driver_principal_id == ""
+    end
+
+    test "refuses a job that has already been delivered" do
+      {driver, _principal} = payable_driver()
+      number = order_number()
+      assert dispatch(number).success == true
+
+      order = Repo.get_by(Order, order_number: number)
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id, %{})
+
+      res = dispatch(number)
+
+      assert res.success == false
+      assert res.error.error_code == "ORDER_ALREADY_FINISHED"
     end
   end
 end

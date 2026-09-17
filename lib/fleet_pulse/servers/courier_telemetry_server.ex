@@ -21,8 +21,13 @@ defmodule FleetPulse.CourierTelemetryServer do
       "[FleetPulse gRPC Server] Received DispatchCourier for Order #{request.order_number} (ID: #{request.order_id})"
     )
 
-    with {:ok, order_id} <- parse_order_id(request.order_id),
-         {:ok, order} <- Dispatch.assign_order(order_id),
+    with {:ok, order} <-
+           Dispatch.dispatch_for_order(
+             request.order_number,
+             request.merchant_principal_id,
+             street(request.pickup_address),
+             street(request.delivery_address)
+           ),
          {:ok, driver} <- fetch_assigned_driver(order),
          {:ok, principal_id} <- payable_principal(order, driver) do
       Logger.info(
@@ -43,13 +48,9 @@ defmodule FleetPulse.CourierTelemetryServer do
     end
   end
 
-  @spec parse_order_id(String.t()) :: {:ok, integer()} | {:error, :invalid_order_id}
-  defp parse_order_id(raw) do
-    case Integer.parse(to_string(raw)) do
-      {order_id, ""} -> {:ok, order_id}
-      _not_an_integer -> {:error, :invalid_order_id}
-    end
-  end
+  @spec street(FleetPulse.Proto.Common.V1.Address.t() | nil) :: String.t()
+  defp street(%{street_address: street}) when is_binary(street), do: street
+  defp street(_absent), do: ""
 
   @spec fetch_assigned_driver(FleetPulse.Dispatch.Order.t()) ::
           {:ok, FleetPulse.Tracking.Driver.t()} | {:error, :not_found}
@@ -71,7 +72,8 @@ defmodule FleetPulse.CourierTelemetryServer do
     {code, message} = describe(reason)
 
     Logger.warning(
-      "[FleetPulse gRPC Server] DispatchCourier refused for order #{request.order_id}: #{code} — #{message}"
+      "[FleetPulse gRPC Server] DispatchCourier refused for #{inspect(request.order_number)} " <>
+        "(caller ref #{inspect(request.order_id)}): #{code} — #{message}"
     )
 
     %DispatchCourierResponse{
@@ -87,7 +89,18 @@ defmodule FleetPulse.CourierTelemetryServer do
   end
 
   @spec describe(term()) :: {String.t(), String.t()}
-  defp describe(:invalid_order_id), do: {"INVALID_ORDER_ID", "order_id is not a number"}
+  defp describe(:blank_order_number),
+    do: {"BLANK_ORDER_NUMBER", "order_number is required: a fleet job delivers a named order"}
+
+  defp describe(:order_already_finished),
+    do: {"ORDER_ALREADY_FINISHED", "that order has already been delivered or cancelled"}
+
+  defp describe({:not_geocodable, which, reason}) do
+    {"ADDRESS_NOT_GEOCODABLE",
+     "the #{which} address could not be turned into a location (#{reason}), so no driver can be " <>
+       "chosen by distance. Dispatch refuses rather than guessing a point and sending a courier " <>
+       "to the wrong place."}
+  end
 
   defp describe(:not_found), do: {"NO_SUCH_ORDER", "no order with that id"}
 
