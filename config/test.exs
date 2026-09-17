@@ -63,3 +63,5 @@ System.put_env("IDENTITY_HTTP_URL", System.get_env("IDENTITY_HTTP_URL") || "http
 config :fleet_pulse, start_grpc_server: false
 
 config :swoosh, :api_client, false
+
+config :fleet_pulse, FleetPulse.Geocoding, provider: FleetPulse.FakeGeocoder
