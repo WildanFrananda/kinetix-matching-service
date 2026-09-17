@@ -1,15 +1,6 @@
 defmodule FleetPulse.Dispatch do
   @moduledoc """
   The dispatch context — order intake and driver assignment (PRD 5.5).
-
-  Assignment is the delicate part. Choosing a driver is a read of in-memory
-  state, and between that read and the write that assigns them, another
-  dispatcher could choose the same driver. The claim closes that window: it is
-  an atomic flip performed inside the driver's own process, and only after it
-  succeeds is the order persisted.
-
-  If persistence then fails, the claim is released, so a driver is never left
-  marked busy for an order that does not exist.
   """
 
   import Ecto.Query
@@ -21,19 +12,83 @@ defmodule FleetPulse.Dispatch do
   alias FleetPulse.Tracking.DriverState
   alias FleetPulse.Types
 
-  @typedoc "Why a lifecycle transition was refused."
   @type transition_error :: :not_found | :forbidden | :invalid_transition
 
-  # The only legal moves. A status not listed as a key is terminal: no
-  # transition leaves :delivered or :cancelled.
   @legal_transitions %{
     pending: [:cancelled],
     assigned: [:picked_up, :cancelled],
     picked_up: [:delivered, :cancelled]
   }
 
-  @typedoc "Why an order could not be assigned to any driver."
   @type assign_error :: :no_driver_available | :not_found | :already_assigned
+
+  @type dispatch_error ::
+          assign_error()
+          | :blank_order_number
+          | {:not_geocodable, :pickup | :delivery, FleetPulse.Geocoding.Provider.error()}
+          | :order_already_finished
+          | Order.changeset()
+
+  @spec dispatch_for_order(String.t(), String.t(), String.t(), String.t()) ::
+          {:ok, Order.t()} | {:error, dispatch_error()}
+  def dispatch_for_order(order_number, merchant_principal_id, pickup_address, delivery_address) do
+    with {:ok, number} <- require_order_number(order_number),
+         {:ok, order} <-
+           find_or_book(number, merchant_principal_id, pickup_address, delivery_address) do
+      assign_if_unassigned(order)
+    end
+  end
+
+  @spec require_order_number(term()) :: {:ok, String.t()} | {:error, :blank_order_number}
+  defp require_order_number(order_number) when is_binary(order_number) do
+    case String.trim(order_number) do
+      "" -> {:error, :blank_order_number}
+      trimmed -> {:ok, trimmed}
+    end
+  end
+
+  defp require_order_number(_order_number), do: {:error, :blank_order_number}
+
+  @spec find_or_book(String.t(), String.t(), String.t(), String.t()) ::
+          {:ok, Order.t()} | {:error, dispatch_error()}
+  defp find_or_book(order_number, merchant_principal_id, pickup_address, delivery_address) do
+    case Repo.get_by(Order, order_number: order_number) do
+      %Order{} = existing -> {:ok, existing}
+      nil -> book(order_number, merchant_principal_id, pickup_address, delivery_address)
+    end
+  end
+
+  @spec book(String.t(), String.t(), String.t(), String.t()) ::
+          {:ok, Order.t()} | {:error, dispatch_error()}
+  defp book(order_number, merchant_principal_id, pickup_address, delivery_address) do
+    with {:ok, {pickup_lat, pickup_lng}} <- geocode(pickup_address, :pickup),
+         {:ok, {drop_lat, drop_lng}} <- geocode(delivery_address, :delivery) do
+      create_order(%{
+        order_number: order_number,
+        merchant_principal_id: merchant_principal_id,
+        pickup_latitude: pickup_lat,
+        pickup_longitude: pickup_lng,
+        dropoff_latitude: drop_lat,
+        dropoff_longitude: drop_lng
+      })
+    end
+  end
+
+  @spec geocode(String.t(), :pickup | :delivery) ::
+          {:ok, FleetPulse.Geocoding.coordinates()}
+          | {:error, {:not_geocodable, :pickup | :delivery, term()}}
+  defp geocode(address, end_of_journey) do
+    case FleetPulse.Geocoding.coordinates_for(address) do
+      {:ok, coordinates} -> {:ok, coordinates}
+      {:error, reason} -> {:error, {:not_geocodable, end_of_journey, reason}}
+    end
+  end
+
+  @spec assign_if_unassigned(Order.t()) :: {:ok, Order.t()} | {:error, dispatch_error()}
+  defp assign_if_unassigned(%Order{status: :pending} = order), do: assign_order(order.id)
+  defp assign_if_unassigned(%Order{status: :assigned} = order), do: {:ok, order}
+  defp assign_if_unassigned(%Order{status: :picked_up} = order), do: {:ok, order}
+  defp assign_if_unassigned(%Order{}), do: {:error, :order_already_finished}
 
   @spec create_order(map()) :: {:ok, Order.t()} | {:error, Order.changeset()}
   def create_order(attrs) do
@@ -59,10 +114,6 @@ defmodule FleetPulse.Dispatch do
     |> Repo.all()
   end
 
-  @doc """
-  Every order still in play — pending, assigned, or picked up. What the
-  dispatcher's board shows; terminal orders drop off.
-  """
   @spec list_active_orders() :: [Order.t()]
   def list_active_orders do
     Order
@@ -71,13 +122,8 @@ defmodule FleetPulse.Dispatch do
     |> Repo.all()
   end
 
-  @typedoc "Options for `list_orders/1`."
   @type order_filter :: [status: Order.status() | :all, limit: pos_integer()]
 
-  @doc """
-  Recent orders, newest first, optionally filtered by status. The dispatcher's
-  history log — includes terminal orders the active board drops.
-  """
   @spec list_orders(order_filter()) :: [Order.t()]
   def list_orders(opts \\ []) do
     status = Keyword.get(opts, :status, :all)
@@ -90,9 +136,6 @@ defmodule FleetPulse.Dispatch do
     |> Repo.all()
   end
 
-  @doc """
-  How many orders reached `:delivered` today (UTC). A cheap KPI query.
-  """
   @spec count_delivered_today() :: non_neg_integer()
   def count_delivered_today do
     start_of_today = DateTime.new!(Date.utc_today(), ~T[00:00:00.000000])
@@ -105,12 +148,6 @@ defmodule FleetPulse.Dispatch do
   @spec subscribe_orders() :: Events.subscribe_result()
   def subscribe_orders, do: Events.subscribe_orders()
 
-  @doc """
-  A driver's in-flight order, if any — assigned or picked up, never terminal.
-
-  Used when a driver (re)connects so the app can restore its current job
-  instead of losing it to a dropped socket.
-  """
   @spec active_order_for_driver(Types.id()) :: Order.t() | nil
   def active_order_for_driver(driver_id) do
     Order
@@ -120,9 +157,6 @@ defmodule FleetPulse.Dispatch do
     |> Repo.one()
   end
 
-  @doc """
-  Lists all active assigned or picked up orders for a specific driver.
-  """
   @spec active_orders_for_driver(Types.id()) :: [Order.t()]
   def active_orders_for_driver(driver_id) do
     Order
@@ -131,14 +165,6 @@ defmodule FleetPulse.Dispatch do
     |> Repo.all()
   end
 
-  @doc """
-  Assigns a pending order to the nearest eligible driver.
-
-  Eligible means online, within `radius_km` of the pickup, and able to carry
-  the order's weight. The nearest such driver is claimed atomically before the
-  order is written; if two orders race for the same driver, only one claim
-  succeeds and the loser moves to the next candidate.
-  """
   @spec assign_order(Types.id(), float()) ::
           {:ok, Order.t()} | {:error, assign_error() | Order.changeset()}
   def assign_order(order_id, radius_km \\ 3.0) do
@@ -153,11 +179,6 @@ defmodule FleetPulse.Dispatch do
     result
   end
 
-  @doc """
-  Assigns a pending order to a SPECIFIC driver (a dispatcher override), rather
-  than the nearest. Claims that driver atomically, so it still cannot be
-  double-assigned.
-  """
   @spec assign_order_to_driver(Types.id(), Types.id()) ::
           {:ok, Order.t()} | {:error, assign_error() | :unavailable | Order.changeset()}
   def assign_order_to_driver(order_id, driver_id) do
@@ -172,29 +193,17 @@ defmodule FleetPulse.Dispatch do
     result
   end
 
-  @doc """
-  A driver marks its assigned order as picked up.
-
-  Refused unless the order is currently `:assigned` AND belongs to this driver.
-  """
   @spec mark_picked_up(Types.id(), Types.id()) :: {:ok, Order.t()} | {:error, transition_error()}
   def mark_picked_up(order_id, driver_id) do
     transition_by_driver(order_id, driver_id, :picked_up)
   end
 
-  @doc """
-  A driver marks its picked-up order as delivered, which frees the driver.
-  Accepts optional POD (Proof of Delivery) metadata map (photo URL, signature).
-  """
   @spec mark_delivered(Types.id(), Types.id(), map()) ::
           {:ok, Order.t()} | {:error, transition_error()}
   def mark_delivered(order_id, driver_id, pod_attrs \\ %{}) do
     transition_by_driver(order_id, driver_id, :delivered, pod_attrs)
   end
 
-  @doc """
-  A dispatcher cancels an order. Frees the driver if one was already assigned.
-  """
   @spec cancel_order(Types.id()) :: {:ok, Order.t()} | {:error, :not_found | :invalid_transition}
   def cancel_order(order_id) do
     with {:ok, order} <- fetch_order(order_id) do
