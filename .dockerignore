@@ -53,3 +53,15 @@ erl_crash.dump
 *.pem
 *.key
 config/master.key
+
+# The wire types generated from kinetix-contracts. The Dockerfile generates these from the pinned
+# contract in an earlier layer, and `COPY lib lib` would then overwrite them with whatever copy is
+# committed here — silently shipping the old contract while the pin claims the new one.
+#
+# Measured 2026-09-17: the committed copies were byte-identical to the pinned contract, so the
+# overwrite had never done any harm. It would have, on the next contract change, and the symptom
+# would have been a service speaking a version nothing in the repository admits to.
+#
+# .gitignore already lists this path; three files predate that rule and are still tracked. Until
+# they are untracked, this is what keeps them out of the image.
+/lib/fleet_pulse/proto/

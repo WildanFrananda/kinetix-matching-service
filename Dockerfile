@@ -82,6 +82,7 @@ RUN apt-get update \
        .contracts/proto/common/v1/common.proto \
        .contracts/proto/fleet/v1/fleet.proto \
        .contracts/proto/shipping/v1/shipping.proto \
+       .contracts/proto/payment/v1/payment.proto \
   && test -n "$(find lib/fleet_pulse/proto -name '*.pb.ex' | head -1)" \
      || { echo 'protoc produced no Elixir; the build would ship without wire types'; exit 1; }
 
