@@ -288,10 +288,35 @@ defmodule FleetPulse.TrackingTest do
 
     test "refuses a driver that has not been approved" do
       principal = "principal-pending-#{System.unique_integer([:positive])}"
-      {:ok, pending} = Tracking.register_driver(driver_attrs())
-      {:ok, _linked} = Tracking.link_driver_to_principal(pending, principal)
+      {:ok, _pending} = Tracking.register_driver(driver_attrs(), principal)
 
       assert {:error, :unlinked} = Tracking.driver_for_principal(principal)
+    end
+
+    test "registration binds the principal, so no operator step stands between the two" do
+      principal = "principal-bound-#{System.unique_integer([:positive])}"
+      {:ok, registered} = Tracking.register_driver(driver_attrs(), principal)
+
+      assert registered.principal_id == principal
+      assert registered.active == false
+    end
+
+    test "a principal cannot file a second driver row" do
+      principal = "principal-twice-#{System.unique_integer([:positive])}"
+      {:ok, _first} = Tracking.register_driver(driver_attrs(), principal)
+
+      assert {:error, changeset} = Tracking.register_driver(driver_attrs(), principal)
+      assert %{principal_id: _} = Ecto.Changeset.traverse_errors(changeset, & &1)
+    end
+
+    test "a principal_id in the request body is discarded, never trusted" do
+      principal = "principal-token-#{System.unique_integer([:positive])}"
+      forged = "principal-forged-#{System.unique_integer([:positive])}"
+
+      {:ok, registered} =
+        Tracking.register_driver(driver_attrs(%{principal_id: forged}), principal)
+
+      assert registered.principal_id == principal
     end
   end
 end
