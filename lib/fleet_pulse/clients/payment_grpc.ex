@@ -7,6 +7,7 @@ defmodule FleetPulse.Clients.PaymentGrpc do
 
   require Logger
 
+  alias FleetPulse.Observability.Metrics
   alias FleetPulse.Proto.Payment.V1.PaymentService.Stub
   alias FleetPulse.Proto.Payment.V1.SettleShippingFeeRequest
   alias FleetPulse.Security.ServiceIdentity
@@ -101,7 +102,7 @@ defmodule FleetPulse.Clients.PaymentGrpc do
   @spec count(String.t()) :: :ok
   defp count(grpc_code) do
     :telemetry.execute(
-      FleetPulse.Observability.Metrics.grpc_client_call_event(),
+      Metrics.grpc_client_call_event(),
       %{count: 1},
       %{peer: @peer, grpc_method: @method, grpc_code: grpc_code}
     )

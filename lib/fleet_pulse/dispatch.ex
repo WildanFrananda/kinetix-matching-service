@@ -7,6 +7,7 @@ defmodule FleetPulse.Dispatch do
 
   require Logger
 
+  alias FleetPulse.Clients.Payment
   alias FleetPulse.Dispatch.Events
   alias FleetPulse.Dispatch.Order
   alias FleetPulse.Repo
@@ -225,7 +226,7 @@ defmodule FleetPulse.Dispatch do
   defp settle_shipping_fee(%Order{} = order, driver_id) do
     with {:ok, driver} <- Tracking.fetch_driver(driver_id),
          {:ok, principal} <- payable_principal(driver) do
-      case FleetPulse.Clients.Payment.settle_shipping_fee(order.order_number, principal) do
+      case Payment.settle_shipping_fee(order.order_number, principal) do
         :ok ->
           :ok
 
