@@ -74,17 +74,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/* \
   && sh bin/sync-contracts \
   && mix escript.install hex protobuf --force \
-  && mkdir -p lib/fleet_pulse/proto \
-  && PATH="$PATH:/root/.mix/escripts" protoc \
-       --elixir_out=plugins=grpc,package_prefix=fleet_pulse.proto:lib/fleet_pulse/proto \
-       -I .contracts/proto \
-       -I "$(dpkg -L libprotobuf-dev 2>/dev/null | grep -m1 'timestamp.proto' | sed 's|/google/protobuf/timestamp.proto||')" \
-       .contracts/proto/common/v1/common.proto \
-       .contracts/proto/fleet/v1/fleet.proto \
-       .contracts/proto/shipping/v1/shipping.proto \
-       .contracts/proto/payment/v1/payment.proto \
-  && test -n "$(find lib/fleet_pulse/proto -name '*.pb.ex' | head -1)" \
-     || { echo 'protoc produced no Elixir; the build would ship without wire types'; exit 1; }
+  && PATH="$PATH:/root/.mix/escripts" sh bin/generate-proto
 
 COPY priv priv
 

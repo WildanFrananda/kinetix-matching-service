@@ -5,6 +5,9 @@ defmodule FleetPulse.Dispatch do
 
   import Ecto.Query
 
+  require Logger
+
+  alias FleetPulse.Clients.Payment
   alias FleetPulse.Dispatch.Events
   alias FleetPulse.Dispatch.Order
   alias FleetPulse.Repo
@@ -201,8 +204,59 @@ defmodule FleetPulse.Dispatch do
   @spec mark_delivered(Types.id(), Types.id(), map()) ::
           {:ok, Order.t()} | {:error, transition_error()}
   def mark_delivered(order_id, driver_id, pod_attrs \\ %{}) do
-    transition_by_driver(order_id, driver_id, :delivered, pod_attrs)
+    case transition_by_driver(order_id, driver_id, :delivered, pod_attrs) do
+      {:ok, order} ->
+        _ = settle_shipping_fee(order, driver_id)
+        {:ok, order}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
+
+  @spec settle_shipping_fee(Order.t(), Types.id()) :: :ok
+  defp settle_shipping_fee(%Order{order_number: nil} = order, _driver_id) do
+    Logger.warning(
+      "[Payment] fleet job #{order.id} has no order number, so no shipping fee can be settled"
+    )
+
+    :ok
+  end
+
+  defp settle_shipping_fee(%Order{} = order, driver_id) do
+    with {:ok, driver} <- Tracking.fetch_driver(driver_id),
+         {:ok, principal} <- payable_principal(driver) do
+      case Payment.settle_shipping_fee(order.order_number, principal) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          Logger.error(
+            "[Payment] #{order.order_number} was delivered by #{principal} but the shipping fee " <>
+              "was not settled (#{reason}). The delivery stands; the fee is still owed and can be " <>
+              "paid through the escrow settle endpoint."
+          )
+
+          :ok
+      end
+    else
+      _unpayable ->
+        Logger.error(
+          "[Payment] #{order.order_number} was delivered by driver #{driver_id}, who has no " <>
+            "identity principal. Nobody can be paid for this delivery until that is linked."
+        )
+
+        :ok
+    end
+  end
+
+  @spec payable_principal(FleetPulse.Tracking.Driver.t()) ::
+          {:ok, String.t()} | {:error, :unlinked}
+  defp payable_principal(%{principal_id: principal})
+       when is_binary(principal) and principal != "",
+       do: {:ok, principal}
+
+  defp payable_principal(_driver), do: {:error, :unlinked}
 
   @spec cancel_order(Types.id()) :: {:ok, Order.t()} | {:error, :not_found | :invalid_transition}
   def cancel_order(order_id) do

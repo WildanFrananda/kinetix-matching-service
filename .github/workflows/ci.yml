@@ -60,25 +60,17 @@ jobs:
       - run: mix deps.get
 
       # The wire contracts are deliberately absent from this repository: bin/sync-contracts fetches them at
-      # a pinned commit and protoc generates the Elixir the servers compile against. The Dockerfile does
-      # exactly this, and CI has to as well — without it every compile dies on an undefined Proto module,
-      # which is how this job failed on its first run.
+      # a pinned commit and bin/generate-proto turns them into the Elixir this service compiles against.
+      # The Dockerfile runs the same two scripts, so the set generated here and the set shipped in the
+      # image cannot drift — they did on 2026-09-18, when payment/v1 was added to the image only and CI
+      # died on an undefined Proto module.
       - name: Fetch the contracts and generate from them
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq protobuf-compiler libprotobuf-dev
           sh bin/sync-contracts
           mix escript.install hex protobuf --force
-          mkdir -p lib/fleet_pulse/proto
-          PATH="$PATH:$HOME/.mix/escripts" protoc \
-            --elixir_out=plugins=grpc,package_prefix=fleet_pulse.proto:lib/fleet_pulse/proto \
-            -I .contracts/proto \
-            -I "$(dpkg -L libprotobuf-dev | grep -m1 'timestamp.proto' | sed 's|/google/protobuf/timestamp.proto||')" \
-            .contracts/proto/common/v1/common.proto \
-            .contracts/proto/fleet/v1/fleet.proto \
-            .contracts/proto/shipping/v1/shipping.proto
-          test -n "$(find lib/fleet_pulse/proto -name '*.pb.ex' | head -1)" \
-            || { echo "protoc produced no Elixir; the suite would run without wire types"; exit 1; }
+          PATH="$PATH:$HOME/.mix/escripts" sh bin/generate-proto
 
       # A warning is a defect here: the release build in the Dockerfile compiles the same code.
       - run: mix compile --warnings-as-errors

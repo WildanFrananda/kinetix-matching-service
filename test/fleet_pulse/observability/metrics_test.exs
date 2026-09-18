@@ -3,22 +3,32 @@ defmodule FleetPulse.Observability.MetricsTest do
 
   alias FleetPulse.Observability.Metrics
 
-  test "there is still no outbound gRPC client, which is why the client counter is not registered" do
+  test "every outbound gRPC client is counted, as the estate's metrics contract requires" do
     callers =
       "lib/**/*.ex"
       |> Path.wildcard()
       |> Enum.reject(&String.starts_with?(&1, "lib/fleet_pulse/proto/"))
       |> Enum.filter(&(&1 |> File.read!() |> String.contains?("GRPC.Stub.")))
 
-    assert callers == [],
-           """
-           A gRPC client appeared in #{inspect(callers)}.
+    refute callers == [],
+           "this test is about outbound clients and found none; if that is now true, invert it back"
 
-           kinetix_grpc_client_calls_total{peer, grpc_method, grpc_code} is part of the estate's
-           contract for any service that calls another over gRPC, and this service was excused it
-           only because it made no such call. Register it in FleetPulse.Observability.Metrics and
-           count the call where it is made.
+    registered =
+      Metrics.definitions()
+      |> Enum.map(& &1.name)
+      |> Enum.map(&Enum.join(&1, "."))
+
+    assert "kinetix.grpc.client.calls.total" in registered,
            """
+           #{inspect(callers)} dials another service, so
+           kinetix_grpc_client_calls_total{peer, grpc_method, grpc_code} must be registered in
+           FleetPulse.Observability.Metrics and emitted where the call is made.
+           """
+
+    for caller <- callers do
+      assert File.read!(caller) =~ "grpc_client_call_event",
+             "#{caller} makes a gRPC call but never counts it"
+    end
   end
 
   test "the scrape carries the contract's names and no others of its own invention" do
