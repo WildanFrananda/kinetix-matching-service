@@ -63,6 +63,7 @@ defmodule FleetPulse.Application do
     [
       grpc_server_spec(),
       FleetPulse.Observability.GrpcServerMetricsSeed,
+      FleetPulse.Observability.GrpcClientMetricsSeed,
       GrpcReflection,
       FleetPulse.GrpcDrain
     ]
