@@ -31,7 +31,6 @@ defmodule FleetPulseWeb.Router do
   scope "/", FleetPulseWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
     get "/admin/log_in", AdminSessionController, :new
     post "/admin/log_in", AdminSessionController, :create
     delete "/admin/log_out", AdminSessionController, :delete
@@ -47,12 +46,8 @@ defmodule FleetPulseWeb.Router do
   end
 
   scope "/api/v1", FleetPulseWeb do
-    pipe_through [:authenticated_api, :throttle_register]
-    post "/driver/register", DriverRegistrationController, :create
-  end
-
-  pipeline :throttle_register do
-    plug FleetPulseWeb.Plugs.RateLimit, bucket: :register
+    pipe_through :authenticated_api
+    get "/driver/me", Api.V1.DriverProfileController, :show
   end
 
   pipeline :fleet_reader do

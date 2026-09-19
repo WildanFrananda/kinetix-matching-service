@@ -12,8 +12,6 @@ defmodule FleetPulse.Tracking.Driver do
   @type t :: %__MODULE__{
           __meta__: Ecto.Schema.Metadata.t(),
           id: Types.id() | nil,
-          name: String.t() | nil,
-          phone: String.t() | nil,
           vehicle_plate: String.t() | nil,
           capacity_kg: non_neg_integer() | nil,
           status: status() | nil,
@@ -26,12 +24,10 @@ defmodule FleetPulse.Tracking.Driver do
   @type changeset :: Ecto.Changeset.t(t())
 
   @statuses [:online, :busy, :offline]
-  @required_fields [:name, :phone, :vehicle_plate]
+  @required_fields [:vehicle_plate]
   @optional_fields [:capacity_kg, :status, :active]
 
   schema "drivers" do
-    field :name, :string
-    field :phone, :string
     field :vehicle_plate, :string
     field :capacity_kg, :integer, default: 0
     field :status, Ecto.Enum, values: @statuses, default: :offline
@@ -49,11 +45,8 @@ defmodule FleetPulse.Tracking.Driver do
     driver
     |> cast(attrs, @required_fields ++ @optional_fields)
     |> validate_required(@required_fields)
-    |> validate_length(:name, min: 2, max: 120)
-    |> validate_format(:phone, ~r/\A\+?[0-9]{8,15}\z/, message: "must be 8-15 digits")
     |> validate_number(:capacity_kg, greater_than_or_equal_to: 0, less_than_or_equal_to: 5_000)
     |> update_change(:vehicle_plate, &String.upcase/1)
-    |> unique_constraint(:phone)
     |> unique_constraint(:vehicle_plate)
     |> check_constraint(:capacity_kg, name: :drivers_capacity_kg_non_negative)
   end
@@ -65,14 +58,6 @@ defmodule FleetPulse.Tracking.Driver do
     |> changeset(attrs)
     |> put_change(:active, false)
     |> put_change(:principal_id, principal_id)
-    |> validate_required([:principal_id])
-    |> unique_constraint(:principal_id)
-  end
-
-  @spec principal_changeset(t(), map()) :: changeset()
-  def principal_changeset(%__MODULE__{} = driver, attrs) do
-    driver
-    |> cast(attrs, [:principal_id])
     |> validate_required([:principal_id])
     |> unique_constraint(:principal_id)
   end

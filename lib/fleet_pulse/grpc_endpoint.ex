@@ -9,6 +9,7 @@ defmodule FleetPulse.GrpcEndpoint do
   intercept FleetPulse.Security.PeerAuthorizationInterceptor
 
   run FleetPulse.CourierTelemetryServer
+  run FleetPulse.Servers.FleetRegistryServer
   run FleetPulse.Servers.ShippingServer
   run FleetPulse.GrpcReflectionServer
   run FleetPulse.GrpcReflectionServerV1alpha

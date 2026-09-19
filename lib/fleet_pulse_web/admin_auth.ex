@@ -36,7 +36,7 @@ defmodule FleetPulseWeb.AdminAuth do
   def log_out_operator(conn) do
     conn
     |> renew_session()
-    |> redirect(to: ~p"/")
+    |> redirect(to: ~p"/admin/log_in")
   end
 
   @spec fetch_current_admin(Plug.Conn.t(), keyword()) :: Plug.Conn.t()

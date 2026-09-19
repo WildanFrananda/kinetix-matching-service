@@ -67,3 +67,4 @@ config :swoosh, :api_client, false
 config :fleet_pulse, FleetPulse.Geocoding, provider: FleetPulse.FakeGeocoder
 
 config :fleet_pulse, FleetPulse.Clients.Payment, impl: FleetPulse.FakePayment
+config :fleet_pulse, FleetPulse.Clients.Identity, impl: FleetPulse.FakeIdentity

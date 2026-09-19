@@ -1,14 +1,6 @@
 defmodule FleetPulse.Security.PeerAuthorizationInterceptor do
   @moduledoc """
   Refuses any gRPC call whose peer is not a service on this server's allow list.
-
-  mTLS answers "was this certificate issued by our CA". It does not answer "may this particular
-  service call this server", and every service on the mesh holds a certificate from the same CA —
-  so without this, converting to mTLS would let any service drive the fleet.
-
-  Declared with `intercept` on the endpoint, so it wraps every server the endpoint runs,
-  reflection included. Reflection is bidirectional streaming and is easy to leave unguarded when
-  authorization is attached per call shape — which is exactly what happened on the .NET service.
   """
 
   @behaviour GRPC.Server.Interceptor
@@ -24,13 +16,11 @@ defmodule FleetPulse.Security.PeerAuthorizationInterceptor do
   @spec init(keyword()) :: keyword()
   def init(opts), do: opts
 
-  @doc """
-  Reads and validates the allow list, once, at application start.
+  @type scope :: :any | MapSet.t(String.t())
 
-  Raising here rather than at the first call: an empty allow list refuses everything, which looks
-  exactly like a network fault at three in the morning.
-  """
-  @spec load_allowed_callers!() :: MapSet.t(String.t())
+  @type allow_list :: %{optional(String.t()) => scope()}
+
+  @spec load_allowed_callers!() :: allow_list()
   def load_allowed_callers! do
     allowed =
       "GRPC_ALLOWED_CALLERS"
@@ -38,16 +28,41 @@ defmodule FleetPulse.Security.PeerAuthorizationInterceptor do
       |> String.split(",", trim: true)
       |> Enum.map(&String.trim/1)
       |> Enum.reject(&(&1 == ""))
-      |> MapSet.new()
+      |> Enum.reduce(%{}, &add_entry/2)
 
-    if MapSet.size(allowed) == 0 do
+    if map_size(allowed) == 0 do
       raise "GRPC_ALLOWED_CALLERS is empty. Name the services permitted to call this server, " <>
               "or the gRPC surface is unreachable."
     end
 
-    Logger.info("gRPC callers allowed on this server: #{Enum.join(allowed, ", ")}")
+    Logger.info("gRPC callers allowed on this server: #{describe_allowed(allowed)}")
     :persistent_term.put(@allowed_key, allowed)
     allowed
+  end
+
+  @spec add_entry(String.t(), allow_list()) :: allow_list()
+  defp add_entry(entry, acc) do
+    case String.split(entry, "@", parts: 2) do
+      [caller] ->
+        Map.put(acc, caller, :any)
+
+      [caller, service] ->
+        Map.update(acc, caller, MapSet.new([service]), fn
+          :any -> :any
+          services -> MapSet.put(services, service)
+        end)
+    end
+  end
+
+  @spec describe_allowed(allow_list()) :: String.t()
+  defp describe_allowed(allowed) do
+    allowed
+    |> Enum.map(fn
+      {caller, :any} -> "#{caller} (any service)"
+      {caller, services} -> "#{caller} (#{Enum.join(Enum.sort(services), " ")})"
+    end)
+    |> Enum.sort()
+    |> Enum.join(", ")
   end
 
   @impl GRPC.Server.Interceptor
@@ -60,29 +75,44 @@ defmodule FleetPulse.Security.PeerAuthorizationInterceptor do
           any()
   def call(req, stream, next, _opts) do
     case peer_service(stream) do
-      {:ok, service} -> authorize(service, allowed_callers(), req, stream, next)
+      {:ok, peer} -> authorize(peer, req, stream, next)
       :error -> refuse_anonymous(stream)
     end
   end
 
-  @spec allowed_callers() :: MapSet.t(String.t())
-  defp allowed_callers, do: :persistent_term.get(@allowed_key, MapSet.new())
+  @spec allowed_callers() :: allow_list()
+  defp allowed_callers, do: :persistent_term.get(@allowed_key, %{})
 
-  @spec authorize(String.t(), MapSet.t(String.t()), struct() | nil, GRPC.Server.Stream.t(), fun()) ::
-          any()
-  defp authorize(service, allowed, req, stream, next) do
-    if MapSet.member?(allowed, service) do
+  @spec authorize(String.t(), struct() | nil, GRPC.Server.Stream.t(), fun()) :: any()
+  defp authorize(peer, req, stream, next) do
+    called = called_service(stream)
+
+    if permitted?(allowed_callers(), peer, called) do
       next.(req, stream)
     else
       Logger.warning(
-        "refused a gRPC call to #{method(stream)} from #{service}, which is not on the allow list"
+        "refused a gRPC call to #{method(stream)} from #{peer}, which may not reach #{called} " <>
+          "on this server"
       )
 
       raise GRPC.RPCError,
         status: GRPC.Status.permission_denied(),
-        message: "service '#{service}' may not call this server"
+        message: "service '#{peer}' may not call #{called}"
     end
   end
+
+  @spec permitted?(allow_list(), String.t(), String.t()) :: boolean()
+  def permitted?(allowed, peer, called) do
+    case Map.get(allowed, peer) do
+      nil -> false
+      :any -> true
+      services -> MapSet.member?(services, called)
+    end
+  end
+
+  @spec called_service(GRPC.Server.Stream.t()) :: String.t()
+  defp called_service(%GRPC.Server.Stream{service_name: name}) when is_binary(name), do: name
+  defp called_service(_stream), do: ""
 
   @spec refuse_anonymous(GRPC.Server.Stream.t()) :: no_return()
   defp refuse_anonymous(stream) do

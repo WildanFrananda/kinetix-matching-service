@@ -24,7 +24,7 @@ defmodule FleetPulse.DeliverySettlementTest do
 
   defp payable_driver do
     principal = "principal-#{System.unique_integer([:positive])}"
-    {:ok, driver} = Tracking.link_driver_to_principal(driver_fixture(), principal)
+    driver = active_driver_fixture(principal)
 
     on_exit(fn ->
       _ = Tracking.stop_tracking(driver.id)

@@ -31,7 +31,7 @@ defmodule FleetPulseWeb.AdminSessionControllerTest do
       conn = conn |> log_in_operator() |> delete(~p"/admin/log_out")
 
       refute get_session(conn, "operator")
-      assert redirected_to(conn) == ~p"/"
+      assert redirected_to(conn) == ~p"/admin/log_in"
     end
   end
 end

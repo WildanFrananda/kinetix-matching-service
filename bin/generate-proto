@@ -13,9 +13,11 @@ set -eu
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$HERE"
 
-# The packages this service speaks. fleet and shipping it serves; payment it calls, to settle a
-# courier's fee when a delivery lands; common carries the shared types the others import.
-PACKAGES="common/v1/common fleet/v1/fleet shipping/v1/shipping payment/v1/payment"
+# The packages this service speaks. fleet and shipping it serves — fleet/v1/registry is the door
+# identity knocks on to file a vehicle and to activate an approved driver. payment and identity it
+# calls: payment to settle a courier's fee when a delivery lands, identity to ask who a driver is,
+# because this service stores a vehicle and never a person's name. common carries the shared types.
+PACKAGES="common/v1/common fleet/v1/fleet fleet/v1/registry shipping/v1/shipping payment/v1/payment identity/v1/identity"
 
 INCLUDE="${PROTOC_INCLUDE:-}"
 if [ -z "$INCLUDE" ]; then

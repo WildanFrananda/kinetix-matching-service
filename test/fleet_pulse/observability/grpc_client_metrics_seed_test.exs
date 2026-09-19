@@ -54,12 +54,58 @@ defmodule FleetPulse.Observability.GrpcClientMetricsSeedTest do
     end
   end
 
-  test "the seeded labels are the ones the client emits" do
-    source = File.read!("lib/fleet_pulse/clients/payment_grpc.ex")
+  test "every seeded label belongs to a client that really dials it" do
+    sources = client_sources()
 
     for {peer, method} <- GrpcClientMetricsSeed.calls() do
-      assert source =~ ~s("#{peer}"), "the client does not use peer #{peer}"
-      assert source =~ ~s("#{method}"), "the client does not use method #{method}"
+      owners =
+        Enum.filter(sources, fn {_path, source} ->
+          source =~ ~s("#{peer}") and source =~ ~s("#{method}")
+        end)
+
+      assert owners != [],
+             "the seed publishes peer #{peer} method #{method}, and no client under " <>
+               "lib/fleet_pulse/clients declares both — a label nothing will ever emit"
+    end
+  end
+
+  test "every gRPC client this service has is seeded" do
+    seeded = MapSet.new(GrpcClientMetricsSeed.calls())
+
+    for {path, source} <- client_sources() do
+      peer = attribute!(source, path, ~r/@peer\s+"([^"]+)"/, "@peer")
+      method = attribute!(source, path, ~r/@method\s+"([^"]+)"/, "@method")
+
+      assert MapSet.member?(seeded, {peer, method}),
+             "#{path} dials peer #{peer} method #{method}, and GrpcClientMetricsSeed does not " <>
+               "publish it. Add it to @calls, or the counter stays absent until something fails."
+    end
+  end
+
+  @spec client_sources() :: [{String.t(), String.t()}]
+  defp client_sources do
+    sources =
+      "lib/fleet_pulse/clients/*_grpc.ex"
+      |> Path.wildcard()
+      |> Enum.map(fn path -> {path, File.read!(path)} end)
+
+    assert sources != [],
+           "no gRPC client sources matched lib/fleet_pulse/clients/*_grpc.ex; this test would " <>
+             "otherwise pass by examining nothing"
+
+    sources
+  end
+
+  @spec attribute!(String.t(), String.t(), Regex.t(), String.t()) :: String.t()
+  defp attribute!(source, path, pattern, name) do
+    case Regex.run(pattern, source) do
+      [_whole, value] ->
+        value
+
+      nil ->
+        flunk(
+          "#{path} is a gRPC client with no #{name} attribute, so its metric cannot be seeded"
+        )
     end
   end
 end

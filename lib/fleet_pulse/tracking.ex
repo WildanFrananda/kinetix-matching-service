@@ -40,13 +40,6 @@ defmodule FleetPulse.Tracking do
     end
   end
 
-  @spec list_drivers() :: [Driver.t()]
-  def list_drivers do
-    Driver
-    |> order_by([d], asc: d.name)
-    |> Repo.all()
-  end
-
   @spec start_tracking(Types.id()) :: {:ok, pid()} | {:error, Types.reason()}
   def start_tracking(driver_id) do
     with {:ok, _driver} <- fetch_driver(driver_id) do
@@ -96,29 +89,77 @@ defmodule FleetPulse.Tracking do
     end
   end
 
-  @spec driver_for_principal(String.t()) :: {:ok, Driver.t()} | {:error, :unlinked}
+  @spec driver_for_principal(String.t()) ::
+          {:ok, Driver.t()} | {:error, :pending_approval | :unlinked}
   def driver_for_principal(principal_id) when is_binary(principal_id) and principal_id != "" do
     case Repo.get_by(Driver, principal_id: principal_id) do
       %Driver{active: true} = driver -> {:ok, driver}
-      _inactive_or_missing -> {:error, :unlinked}
+      %Driver{} -> {:error, :pending_approval}
+      nil -> {:error, :unlinked}
     end
   end
 
   def driver_for_principal(_principal_id), do: {:error, :unlinked}
 
-  @spec link_driver_to_principal(Driver.t(), String.t()) ::
-          {:ok, Driver.t()} | {:error, Driver.changeset()}
-  def link_driver_to_principal(%Driver{} = driver, principal_id) do
-    driver
-    |> Driver.principal_changeset(%{principal_id: principal_id})
-    |> Repo.update()
+  @spec register_driver_for_principal(String.t(), map()) ::
+          {:ok, Driver.t(), :created | :existing} | {:error, Driver.changeset()}
+  def register_driver_for_principal(principal_id, attrs)
+      when is_binary(principal_id) and is_map(attrs) do
+    case Repo.get_by(Driver, principal_id: principal_id) do
+      %Driver{} = existing ->
+        {:ok, existing, :existing}
+
+      nil ->
+        insert_registration(principal_id, attrs)
+    end
   end
 
-  @spec register_driver(map(), String.t()) :: {:ok, Driver.t()} | {:error, Driver.changeset()}
-  def register_driver(attrs, principal_id) when is_map(attrs) and is_binary(principal_id) do
+  @spec insert_registration(String.t(), map()) ::
+          {:ok, Driver.t(), :created | :existing} | {:error, Driver.changeset()}
+  defp insert_registration(principal_id, attrs) do
     %Driver{}
     |> Driver.registration_changeset(attrs, principal_id)
     |> Repo.insert()
+    |> case do
+      {:ok, driver} ->
+        {:ok, driver, :created}
+
+      {:error, changeset} ->
+        reread_after_conflict(principal_id, changeset)
+    end
+  end
+
+  @spec reread_after_conflict(String.t(), Driver.changeset()) ::
+          {:ok, Driver.t(), :existing} | {:error, Driver.changeset()}
+  defp reread_after_conflict(principal_id, changeset) do
+    with true <- Keyword.has_key?(changeset.errors, :principal_id),
+         %Driver{} = driver <- Repo.get_by(Driver, principal_id: principal_id) do
+      {:ok, driver, :existing}
+    else
+      _not_a_principal_race -> {:error, changeset}
+    end
+  end
+
+  @spec activate_driver(String.t()) ::
+          {:ok, Driver.t(), :activated | :already_active}
+          | {:error, :unlinked | Driver.changeset()}
+  def activate_driver(principal_id) when is_binary(principal_id) do
+    case Repo.get_by(Driver, principal_id: principal_id) do
+      nil ->
+        {:error, :unlinked}
+
+      %Driver{active: true} = driver ->
+        {:ok, driver, :already_active}
+
+      %Driver{} = driver ->
+        driver
+        |> Driver.changeset(%{active: true})
+        |> Repo.update()
+        |> case do
+          {:ok, updated} -> {:ok, updated, :activated}
+          {:error, changeset} -> {:error, changeset}
+        end
+    end
   end
 
   @spec list_pending_drivers() :: [Driver.t()]
@@ -127,23 +168,6 @@ defmodule FleetPulse.Tracking do
     |> where([d], d.active == false)
     |> order_by([d], asc: d.inserted_at)
     |> Repo.all()
-  end
-
-  @spec approve_driver(Types.id()) ::
-          {:ok, Driver.t()} | {:error, :not_found | Driver.changeset()}
-  def approve_driver(driver_id) do
-    with {:ok, driver} <- fetch_driver(driver_id) do
-      driver
-      |> Driver.changeset(%{active: true})
-      |> Repo.update()
-    end
-  end
-
-  @spec reject_driver(Types.id()) :: {:ok, Driver.t()} | {:error, :not_found | Ecto.Changeset.t()}
-  def reject_driver(driver_id) do
-    with {:ok, driver} <- fetch_driver(driver_id) do
-      Repo.delete(driver)
-    end
   end
 
   @spec persist_status(Driver.t(), Driver.status()) ::
