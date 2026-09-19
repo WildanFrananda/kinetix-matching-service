@@ -7,6 +7,7 @@ defmodule FleetPulse.CourierTelemetryServerTest do
   alias FleetPulse.Dispatch
   alias FleetPulse.Dispatch.Order
   alias FleetPulse.FakeGeocoder
+  alias FleetPulse.FakeIdentity
   alias FleetPulse.FakePayment
   alias FleetPulse.Proto.Common.V1.Address
   alias FleetPulse.Proto.Fleet.V1.DispatchCourierRequest
@@ -23,6 +24,8 @@ defmodule FleetPulse.CourierTelemetryServerTest do
     FakeGeocoder.always({:ok, %{latitude: elem(@pickup, 0), longitude: elem(@pickup, 1)}})
     :ok = FakePayment.start()
     :ok = FakePayment.reset()
+    :ok = FakeIdentity.start()
+    :ok = FakeIdentity.reset()
     :ok
   end
 
@@ -49,8 +52,7 @@ defmodule FleetPulse.CourierTelemetryServerTest do
 
   defp payable_driver do
     principal = "principal-#{System.unique_integer([:positive])}"
-    {:ok, driver} = Tracking.link_driver_to_principal(driver_fixture(), principal)
-    {track!(driver), principal}
+    {track!(active_driver_fixture(principal)), principal}
   end
 
   defp dispatch(number) do
@@ -81,13 +83,36 @@ defmodule FleetPulse.CourierTelemetryServerTest do
     end
 
     test "answers with the driver's principal, which is who gets paid" do
-      {driver, principal} = payable_driver()
+      {_driver, principal} = payable_driver()
+      FakeIdentity.profile("Budi Santoso", "081200000000")
 
       res = dispatch(order_number())
 
       assert res.assigned_driver_principal_id == principal
-      assert res.assigned_driver_name == driver.name
       assert String.starts_with?(res.dispatch_ref, "DISP-")
+    end
+
+    test "names the driver from identity, not from a column here" do
+      {_driver, principal} = payable_driver()
+      FakeIdentity.profile("Budi Santoso", "081200000000")
+
+      res = dispatch(order_number())
+
+      assert res.assigned_driver_name == "Budi Santoso"
+      assert res.assigned_driver_phone == "081200000000"
+      assert FakeIdentity.calls() == [principal]
+    end
+
+    test "still assigns a driver when identity cannot be reached" do
+      {_driver, principal} = payable_driver()
+      FakeIdentity.always({:error, :unavailable})
+
+      res = dispatch(order_number())
+
+      assert res.success
+      assert res.assigned_driver_principal_id == principal
+      assert res.assigned_driver_name == ""
+      assert res.assigned_driver_phone == ""
     end
 
     test "geocodes both ends, because drivers are chosen by distance" do

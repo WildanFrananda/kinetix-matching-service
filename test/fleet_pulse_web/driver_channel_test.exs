@@ -10,10 +10,8 @@ defmodule FleetPulseWeb.DriverChannelTest do
   alias FleetPulseWeb.DriverSocket
 
   defp linked_driver(overrides \\ %{}) do
-    driver = driver_fixture(overrides)
     principal = "principal-#{System.unique_integer([:positive])}"
-    {:ok, driver} = Tracking.link_driver_to_principal(driver, principal)
-    {driver, principal}
+    {active_driver_fixture(principal, overrides), principal}
   end
 
   defp driver_socket(principal) do

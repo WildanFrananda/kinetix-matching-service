@@ -87,36 +87,6 @@ defmodule FleetPulseWeb.DispatchLive do
 
   @impl Phoenix.LiveView
   @spec handle_event(String.t(), map(), Socket.t()) :: {:noreply, Socket.t()}
-  def handle_event("approve_driver", %{"id" => id}, socket) when is_binary(id) do
-    driver_id = String.to_integer(id)
-
-    case Tracking.approve_driver(driver_id) do
-      {:ok, _driver} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Driver ##{driver_id} successfully approved!")
-         |> assign(:pending_approval, Tracking.list_pending_drivers())}
-
-      {:error, _reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to approved driver.")}
-    end
-  end
-
-  def handle_event("reject_driver", %{"id" => id}, socket) when is_binary(id) do
-    driver_id = String.to_integer(id)
-
-    case Tracking.reject_driver(driver_id) do
-      {:ok, _driver} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Driver ##{driver_id} registration rejected.")
-         |> assign(:pending_approval, Tracking.list_pending_drivers())}
-
-      {:error, _reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to reject driver.")}
-    end
-  end
-
   def handle_event("create_order", %{"order" => params}, socket) do
     case Dispatch.create_order(params) do
       {:ok, _order} ->
@@ -588,9 +558,9 @@ defmodule FleetPulseWeb.DispatchLive do
               </div>
               <div>
                 <h3 class="text-lg font-bold text-white">
-                  Driver #{@selected.record.id} — {@selected.record.name}
+                  Driver #{@selected.record.id} — {@selected.record.vehicle_plate}
                 </h3>
-                <p class="text-xs text-slate-400">Phone: {@selected.record.phone}</p>
+                <p class="text-xs text-slate-400">Capacity: {@selected.record.capacity_kg} kg</p>
               </div>
             </div>
             <button
@@ -727,40 +697,19 @@ defmodule FleetPulseWeb.DispatchLive do
             <h2 class="text-base font-bold text-amber-300">
               ⚠️ Drivers Pending Verification ({length(@pending_approval)})
             </h2>
-            <span class="text-xs text-amber-400/80">Requires admin approval to access dispatch network</span>
+            <span class="text-xs text-amber-400/80">Approve these accounts in identity; this screen only reports them</span>
           </div>
 
           <div class="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-950/60">
             <.table id="pending-drivers" rows={@pending_approval}>
-              <:col :let={driver} label="Name">
-                <span class="text-xs font-bold text-white">{driver.name}</span>
-              </:col>
-              <:col :let={driver} label="Phone">
-                <span class="font-mono text-xs text-slate-300">{driver.phone}</span>
+              <:col :let={driver} label="Principal">
+                <span class="font-mono text-xs text-slate-300">{driver.principal_id}</span>
               </:col>
               <:col :let={driver} label="Plate">
                 <span class="font-mono text-xs text-slate-300">{driver.vehicle_plate}</span>
               </:col>
               <:col :let={driver} label="Capacity">
                 <span class="text-xs font-medium text-slate-200">{driver.capacity_kg} kg</span>
-              </:col>
-              <:col :let={driver} label="Actions">
-                <div class="flex items-center gap-2">
-                  <button
-                    phx-click="approve_driver"
-                    phx-value-id={driver.id}
-                    class="rounded-lg bg-emerald-600/80 hover:bg-emerald-500 px-3 py-1 text-xs font-bold text-white shadow-sm transition-all"
-                  >
-                    Approve
-                  </button>
-                  <button
-                    phx-click="reject_driver"
-                    phx-value-id={driver.id}
-                    class="rounded-lg bg-rose-600/30 hover:bg-rose-600/50 border border-rose-500/30 px-3 py-1 text-xs font-bold text-rose-300 transition-all"
-                  >
-                    Reject
-                  </button>
-                </div>
               </:col>
             </.table>
           </div>

@@ -18,6 +18,7 @@ defmodule FleetPulseWeb.DriverSocket do
           | :unlinked
           | :missing_token
           | :identity_unavailable
+          | :pending_approval
 
   @impl Phoenix.Socket
   @spec connect(map(), Phoenix.Socket.t(), map()) ::

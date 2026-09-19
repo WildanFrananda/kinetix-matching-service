@@ -7,7 +7,10 @@ defmodule FleetPulse.Observability.GrpcClientMetricsSeed do
 
   @seed %{count: 0}
 
-  @calls [{"payment", "/payment.v1.PaymentService/SettleShippingFee"}]
+  @calls [
+    {"payment", "/payment.v1.PaymentService/SettleShippingFee"},
+    {"identity", "/identity.v1.IdentityService/GetUserProfile"}
+  ]
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(_opts) do
