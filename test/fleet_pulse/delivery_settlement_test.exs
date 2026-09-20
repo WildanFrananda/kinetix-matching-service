@@ -6,7 +6,7 @@ defmodule FleetPulse.DeliverySettlementTest do
   alias FleetPulse.Dispatch
   alias FleetPulse.Dispatch.Order
   alias FleetPulse.FakeGeocoder
-  alias FleetPulse.FakePayment
+  alias FleetPulse.FakeOrder
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.StateCache
 
@@ -17,8 +17,8 @@ defmodule FleetPulse.DeliverySettlementTest do
     :ok = FakeGeocoder.start()
     :ok = FakeGeocoder.reset()
     FakeGeocoder.always({:ok, %{latitude: elem(@pickup, 0), longitude: elem(@pickup, 1)}})
-    :ok = FakePayment.start()
-    :ok = FakePayment.reset()
+    :ok = FakeOrder.start()
+    :ok = FakeOrder.reset()
     :ok
   end
 
@@ -60,17 +60,17 @@ defmodule FleetPulse.DeliverySettlementTest do
     {result, order, driver, principal}
   end
 
-  test "a delivery tells payment to pay the courier who made it" do
+  test "a delivery is reported to order, naming the courier who made it" do
     number = "ORD-#{System.unique_integer([:positive])}"
 
     {{:ok, delivered}, _order, _driver, principal} = deliver(number)
 
     assert delivered.status == :delivered
-    assert FakePayment.calls() == [{number, principal}]
+    assert FakeOrder.calls() == [{number, principal}]
   end
 
-  test "payment being down does not un-deliver the order" do
-    FakePayment.always({:error, :unavailable})
+  test "order being unreachable does not un-deliver the order" do
+    FakeOrder.always({:error, :unavailable})
     number = "ORD-#{System.unique_integer([:positive])}"
 
     {{:ok, delivered}, order, _driver, _principal} = deliver(number)
@@ -79,8 +79,8 @@ defmodule FleetPulse.DeliverySettlementTest do
     assert Repo.get(Order, order.id).status == :delivered
   end
 
-  test "payment refusing the settlement does not un-deliver the order" do
-    FakePayment.always({:error, :refused})
+  test "order refusing the report does not un-deliver the order" do
+    FakeOrder.always({:error, :refused})
     number = "ORD-#{System.unique_integer([:positive])}"
 
     {{:ok, delivered}, _order, _driver, _principal} = deliver(number)
@@ -88,7 +88,7 @@ defmodule FleetPulse.DeliverySettlementTest do
     assert delivered.status == :delivered
   end
 
-  test "a fleet job with no order number asks payment nothing" do
+  test "a fleet job with no order number reports nothing" do
     {driver, _principal} = payable_driver()
 
     {:ok, order} =
@@ -105,10 +105,10 @@ defmodule FleetPulse.DeliverySettlementTest do
     {:ok, delivered} = Dispatch.mark_delivered(order.id, driver.id, %{})
 
     assert delivered.status == :delivered
-    assert FakePayment.calls() == []
+    assert FakeOrder.calls() == []
   end
 
-  test "a driver with no identity principal is not settled to" do
+  test "a driver with no identity principal is not reported" do
     driver = driver_fixture()
 
     on_exit(fn ->
@@ -136,10 +136,10 @@ defmodule FleetPulse.DeliverySettlementTest do
     {:ok, delivered} = Dispatch.mark_delivered(order.id, driver.id, %{})
 
     assert delivered.status == :delivered
-    assert FakePayment.calls() == []
+    assert FakeOrder.calls() == []
   end
 
-  test "a refused delivery settles nothing" do
+  test "a refused delivery reports nothing" do
     payable_driver()
     {impostor, _} = payable_driver()
 
@@ -154,6 +154,6 @@ defmodule FleetPulse.DeliverySettlementTest do
 
     other = if impostor.id == assigned, do: impostor.id + 1_000, else: impostor.id
     assert {:error, :forbidden} = Dispatch.mark_delivered(order.id, other, %{})
-    assert FakePayment.calls() == []
+    assert FakeOrder.calls() == []
   end
 end

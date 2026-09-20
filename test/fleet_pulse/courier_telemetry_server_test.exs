@@ -8,7 +8,7 @@ defmodule FleetPulse.CourierTelemetryServerTest do
   alias FleetPulse.Dispatch.Order
   alias FleetPulse.FakeGeocoder
   alias FleetPulse.FakeIdentity
-  alias FleetPulse.FakePayment
+  alias FleetPulse.FakeOrder
   alias FleetPulse.Proto.Common.V1.Address
   alias FleetPulse.Proto.Fleet.V1.DispatchCourierRequest
   alias FleetPulse.Tracking
@@ -22,8 +22,8 @@ defmodule FleetPulse.CourierTelemetryServerTest do
     :ok = FakeGeocoder.start()
     :ok = FakeGeocoder.reset()
     FakeGeocoder.always({:ok, %{latitude: elem(@pickup, 0), longitude: elem(@pickup, 1)}})
-    :ok = FakePayment.start()
-    :ok = FakePayment.reset()
+    :ok = FakeOrder.start()
+    :ok = FakeOrder.reset()
     :ok = FakeIdentity.start()
     :ok = FakeIdentity.reset()
     :ok

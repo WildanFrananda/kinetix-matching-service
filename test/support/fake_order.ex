@@ -1,9 +1,9 @@
-defmodule FleetPulse.FakePayment do
+defmodule FleetPulse.FakeOrder do
   @moduledoc """
-  Payment, as the suite needs it: answering on command and counting what it was asked.
+  The order service, as the suite needs it: answering on command and counting what it was asked.
   """
 
-  @behaviour FleetPulse.Clients.Payment
+  @behaviour FleetPulse.Clients.Order
 
   @agent __MODULE__
 
@@ -24,8 +24,8 @@ defmodule FleetPulse.FakePayment do
   @spec calls() :: [{String.t(), String.t()}]
   def calls, do: Agent.get(@agent, & &1.calls) |> Enum.reverse()
 
-  @impl FleetPulse.Clients.Payment
-  def settle_shipping_fee(order_number, driver_principal_id) do
+  @impl FleetPulse.Clients.Order
+  def delivered(order_number, driver_principal_id, _delivered_at) do
     Agent.get_and_update(@agent, fn state ->
       {state.result, %{state | calls: [{order_number, driver_principal_id} | state.calls]}}
     end)
