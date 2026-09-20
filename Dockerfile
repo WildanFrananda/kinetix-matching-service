@@ -27,7 +27,7 @@ ARG RUNNER_IMAGE="docker.io/debian:${DEBIAN_VERSION}@sha256:020c0d20b9880058cbe7
 FROM ${BUILDER_IMAGE} AS builder
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends build-essential git nodejs npm \
+  && apt-get install -y --no-install-recommends build-essential git \
   && rm -rf /var/lib/apt/lists/*
 
 # prepare build dir
@@ -59,8 +59,6 @@ RUN mkdir config
 COPY config/config.exs config/${MIX_ENV}.exs config/
 RUN mix deps.compile
 
-RUN mix assets.setup
-
 COPY bin ./bin
 
 # The wire contracts and the Elixir generated from them. Both are build outputs now: the .proto
@@ -83,12 +81,9 @@ COPY lib lib
 # Compile the release
 RUN mix compile
 
-COPY assets assets
-
-RUN npm ci --prefix assets
-
-# compile assets
-RUN mix assets.deploy
+# No assets stage. This service renders no pages, so there is no stylesheet to build, no JavaScript
+# to bundle and no digest to write — which also takes npm and a Node toolchain out of the image.
+# (docs/BOUNDARY-DEBT.md M11)
 
 # Changes to config/runtime.exs don't require recompiling the code
 COPY config/runtime.exs config/
