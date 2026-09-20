@@ -1,7 +1,6 @@
 defmodule FleetPulseWeb.Router do
   use FleetPulseWeb, :router
 
-
   pipeline :api do
     plug :accepts, ["json"]
   end

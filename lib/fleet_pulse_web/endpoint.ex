@@ -3,7 +3,6 @@ defmodule FleetPulseWeb.Endpoint do
 
   @before_compile FleetPulseWeb.HttpMetrics
 
-
   @drainer [batch_size: 1_000, batch_interval: 1_000, shutdown: 8_000]
 
   socket "/driver", FleetPulseWeb.DriverSocket,
