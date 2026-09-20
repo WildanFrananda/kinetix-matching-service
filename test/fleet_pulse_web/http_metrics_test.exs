@@ -1,6 +1,10 @@
 defmodule FleetPulseWeb.HttpMetricsTest do
   use FleetPulseWeb.ConnCase, async: false
 
+  import FleetPulse.TrackingFixtures
+
+  alias FleetPulse.IdentityJwks
+
   @event [:kinetix, :http, :request, :stop]
 
   setup do
@@ -84,12 +88,6 @@ defmodule FleetPulseWeb.HttpMetricsTest do
   end
 
   describe "a socket transport" do
-    test "longpoll is an ordinary request, and is counted under its socket path", %{conn: conn} do
-      get(conn, "/live/longpoll")
-
-      assert {_measurements, %{route: "/live/longpoll", method: "GET"}} = counted()
-    end
-
     test "an upgrade this endpoint rejects is counted", %{conn: conn} do
       get(conn, "/driver/websocket")
 
@@ -97,15 +95,20 @@ defmodule FleetPulseWeb.HttpMetricsTest do
     end
 
     test "a path under a socket that is not a transport cannot invent a label", %{conn: conn} do
-      get(conn, "/live/8f3a1c2e-4b5d-6e7f-8a9b-0c1d2e3f4a5b")
+      get(conn, "/driver/8f3a1c2e-4b5d-6e7f-8a9b-0c1d2e3f4a5b")
 
       assert {_measurements, %{route: "unmatched"}} = counted()
     end
 
     test "a successful upgrade is counted as the 101 it answered with" do
-      assert websocket_upgrade("/live/websocket?vsn=2.0.0") == "HTTP/1.1 101 Switching Protocols"
+      principal = "principal-#{System.unique_integer([:positive])}"
+      _driver = active_driver_fixture(principal)
+      token = IdentityJwks.token(role: "courier", sub: principal)
 
-      assert {%{duration: duration}, %{route: "/live/websocket", status: "101"}} = counted()
+      assert websocket_upgrade("/driver/websocket?vsn=2.0.0&token=#{token}") ==
+               "HTTP/1.1 101 Switching Protocols"
+
+      assert {%{duration: duration}, %{route: "/driver/websocket", status: "101"}} = counted()
       assert duration > 0
     end
   end
