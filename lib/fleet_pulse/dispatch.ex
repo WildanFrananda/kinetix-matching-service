@@ -7,7 +7,7 @@ defmodule FleetPulse.Dispatch do
 
   require Logger
 
-  alias FleetPulse.Clients.Payment
+  alias FleetPulse.Clients.Order, as: OrderClient
   alias FleetPulse.Dispatch.Events
   alias FleetPulse.Dispatch.Order
   alias FleetPulse.Repo
@@ -206,7 +206,7 @@ defmodule FleetPulse.Dispatch do
   def mark_delivered(order_id, driver_id, pod_attrs \\ %{}) do
     case transition_by_driver(order_id, driver_id, :delivered, pod_attrs) do
       {:ok, order} ->
-        _ = settle_shipping_fee(order, driver_id)
+        _ = report_delivered(order, driver_id)
         {:ok, order}
 
       {:error, reason} ->
@@ -214,27 +214,27 @@ defmodule FleetPulse.Dispatch do
     end
   end
 
-  @spec settle_shipping_fee(Order.t(), Types.id()) :: :ok
-  defp settle_shipping_fee(%Order{order_number: nil} = order, _driver_id) do
+  @spec report_delivered(Order.t(), Types.id()) :: :ok
+  defp report_delivered(%Order{order_number: nil} = order, _driver_id) do
     Logger.warning(
-      "[Payment] fleet job #{order.id} has no order number, so no shipping fee can be settled"
+      "[Order] fleet job #{order.id} has no order number, so no delivery can be reported"
     )
 
     :ok
   end
 
-  defp settle_shipping_fee(%Order{} = order, driver_id) do
+  defp report_delivered(%Order{} = order, driver_id) do
     with {:ok, driver} <- Tracking.fetch_driver(driver_id),
          {:ok, principal} <- payable_principal(driver) do
-      case Payment.settle_shipping_fee(order.order_number, principal) do
+      case OrderClient.delivered(order.order_number, principal, DateTime.utc_now()) do
         :ok ->
           :ok
 
         {:error, reason} ->
           Logger.error(
-            "[Payment] #{order.order_number} was delivered by #{principal} but the shipping fee " <>
-              "was not settled (#{reason}). The delivery stands; the fee is still owed and can be " <>
-              "paid through the escrow settle endpoint."
+            "[Order] #{order.order_number} was delivered by #{principal} but order did not " <>
+              "record it (#{reason}). The delivery stands; the courier's fee is unrecorded until " <>
+              "this is reported again."
           )
 
           :ok
@@ -242,7 +242,7 @@ defmodule FleetPulse.Dispatch do
     else
       _unpayable ->
         Logger.error(
-          "[Payment] #{order.order_number} was delivered by driver #{driver_id}, who has no " <>
+          "[Order] #{order.order_number} was delivered by driver #{driver_id}, who has no " <>
             "identity principal. Nobody can be paid for this delivery until that is linked."
         )
 

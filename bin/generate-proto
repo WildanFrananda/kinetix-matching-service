@@ -14,10 +14,13 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$HERE"
 
 # The packages this service speaks. fleet and shipping it serves — fleet/v1/registry is the door
-# identity knocks on to file a vehicle and to activate an approved driver. payment and identity it
-# calls: payment to settle a courier's fee when a delivery lands, identity to ask who a driver is,
+# identity knocks on to file a vehicle and to activate an approved driver. order and identity it
+# calls: order to report that a courier completed a delivery, identity to ask who a driver is,
 # because this service stores a vehicle and never a person's name. common carries the shared types.
-PACKAGES="common/v1/common fleet/v1/fleet fleet/v1/registry shipping/v1/shipping payment/v1/payment identity/v1/identity"
+#
+# payment left this list on 2026-09-20: settling a delivered order's fee was this service deciding
+# when money moves, which is the order saga's call. (docs/BOUNDARY-DEBT.md S2)
+PACKAGES="common/v1/common fleet/v1/fleet fleet/v1/registry shipping/v1/shipping order/v1/order identity/v1/identity"
 
 INCLUDE="${PROTOC_INCLUDE:-}"
 if [ -z "$INCLUDE" ]; then
