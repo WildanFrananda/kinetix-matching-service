@@ -3,8 +3,6 @@ defmodule FleetPulse.Tracking do
   The tracking context — the only public API of the driver-telemetry domain.
   """
 
-  import Ecto.Query
-
   alias FleetPulse.Repo
   alias FleetPulse.Tracking.Driver
   alias FleetPulse.Tracking.DriverState
@@ -160,14 +158,6 @@ defmodule FleetPulse.Tracking do
           {:error, changeset} -> {:error, changeset}
         end
     end
-  end
-
-  @spec list_pending_drivers() :: [Driver.t()]
-  def list_pending_drivers do
-    Driver
-    |> where([d], d.active == false)
-    |> order_by([d], asc: d.inserted_at)
-    |> Repo.all()
   end
 
   @spec persist_status(Driver.t(), Driver.status()) ::

@@ -40,23 +40,6 @@ case System.get_env("LOG_LEVEL") do
             "Use one of: emergency alert critical error warning notice info debug."
 end
 
-if config_env() == :dev do
-  # Reload browser tabs when matching files change.
-  config :fleet_pulse, FleetPulseWeb.Endpoint,
-    live_reload: [
-      web_console_logger: true,
-      patterns: [
-        # Static assets, except user uploads
-        ~r"priv/static/(?!uploads/).*\.(js|css|png|jpeg|jpg|gif|svg)$"E,
-        # Gettext translations
-        ~r"priv/gettext/.*\.po$"E,
-        # Router, Controllers, LiveViews and LiveComponents
-        ~r"lib/fleet_pulse_web/router\.ex$"E,
-        ~r"lib/fleet_pulse_web/(controllers|live|components)/.*\.(ex|heex)$"E
-      ]
-    ]
-end
-
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||
