@@ -26,8 +26,8 @@ defmodule FleetPulse.CourierTelemetryServer do
            Dispatch.dispatch_for_order(
              request.order_number,
              request.merchant_principal_id,
-             street(request.pickup_address),
-             street(request.delivery_address)
+             point(request.pickup_point),
+             point(request.delivery_point)
            ),
          {:ok, driver} <- fetch_assigned_driver(order),
          {:ok, principal_id} <- payable_principal(order, driver) do
@@ -66,9 +66,13 @@ defmodule FleetPulse.CourierTelemetryServer do
     end
   end
 
-  @spec street(FleetPulse.Proto.Common.V1.Address.t() | nil) :: String.t()
-  defp street(%{street_address: street}) when is_binary(street), do: street
-  defp street(_absent), do: ""
+  @spec point(term()) :: FleetPulse.Dispatch.point() | nil
+  defp point(%{latitude: latitude, longitude: longitude})
+       when is_float(latitude) and is_float(longitude) and
+              (latitude != 0.0 or longitude != 0.0),
+       do: {latitude, longitude}
+
+  defp point(_absent), do: nil
 
   @spec fetch_assigned_driver(FleetPulse.Dispatch.Order.t()) ::
           {:ok, FleetPulse.Tracking.Driver.t()} | {:error, :not_found}
@@ -113,11 +117,11 @@ defmodule FleetPulse.CourierTelemetryServer do
   defp describe(:order_already_finished),
     do: {"ORDER_ALREADY_FINISHED", "that order has already been delivered or cancelled"}
 
-  defp describe({:not_geocodable, which, reason}) do
-    {"ADDRESS_NOT_GEOCODABLE",
-     "the #{which} address could not be turned into a location (#{reason}), so no driver can be " <>
-       "chosen by distance. Dispatch refuses rather than guessing a point and sending a courier " <>
-       "to the wrong place."}
+  defp describe({:no_point, which}) do
+    {"NO_POINT",
+     "no #{which} point was given, so no driver can be chosen by distance. The caller owns the " <>
+       "address and the point it resolves to; dispatch refuses rather than sending a courier to " <>
+       "0,0, which is a real place in the Atlantic."}
   end
 
   defp describe(:not_found), do: {"NO_SUCH_ORDER", "no order with that id"}
