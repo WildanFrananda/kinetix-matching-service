@@ -190,6 +190,57 @@ defmodule FleetPulse.DispatchTest do
       assert {:ok, %{status: :online}} = Tracking.fetch_state(driver.id)
     end
 
+    test "refuses a proof of delivery that names nothing fetchable" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+
+      assert {:error, :invalid_proof} =
+               Dispatch.mark_delivered(order.id, driver.id, %{
+                 "pod_photo_url" => "the parcel was left by the gate"
+               })
+
+      assert {:ok, %{status: :picked_up, pod_photo_url: nil}} = Dispatch.fetch_order(order.id)
+    end
+
+    test "refuses a signature that is neither a data URI nor a URL" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+
+      assert {:error, :invalid_proof} =
+               Dispatch.mark_delivered(order.id, driver.id, %{
+                 "pod_photo_url" => "https://storage.luxe.id/pod/photo_9.jpg",
+                 "pod_signature" => "Budi"
+               })
+    end
+
+    test "refuses a photo reference too long to be one" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+
+      too_long = "https://storage.luxe.id/pod/" <> String.duplicate("a", 2_048) <> ".jpg"
+
+      assert {:error, :invalid_proof} =
+               Dispatch.mark_delivered(order.id, driver.id, %{"pod_photo_url" => too_long})
+    end
+
+    test "an illegal transition still reads as an illegal transition" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+
+      assert {:error, :invalid_transition} = Dispatch.mark_delivered(order.id, driver.id, %{})
+    end
+
+    test "a delivery with no proof at all is still a delivery" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+
+      assert {:ok, %{status: :delivered}} = Dispatch.mark_delivered(order.id, driver.id, %{})
+    end
+
     test "refuses a pickup by a driver who does not own the order" do
       owner = online_driver(0.5, 100)
       intruder = online_driver(2.0, 100)

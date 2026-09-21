@@ -31,13 +31,20 @@ defmodule FleetPulseWeb.Router do
     get "/drivers", DriverController, :index
     get "/drivers/nearby", DriverController, :nearby
     get "/drivers/:id", DriverController, :show
-    get "/orders/:id", OrderController, :show
-    post "/merchant/orders", MerchantOrderController, :create
   end
 
-  scope "/api/v1", FleetPulseWeb.Api.V1, as: :api_v1 do
-    pipe_through :authenticated_api
+  pipeline :fleet_operator do
+    plug FleetPulseWeb.Plugs.RequireRole, ["admin"]
+  end
 
-    post "/shipping/options", ShippingController, :options
+  scope "/api/v1/backoffice", FleetPulseWeb.Api.V1, as: :api_v1_backoffice do
+    pipe_through [:authenticated_api, :fleet_operator]
+
+    get "/dispatches", DispatchController, :index
+    get "/dispatches/summary", DispatchController, :summary
+    get "/dispatches/:id", DispatchController, :show
+    post "/dispatches/:id/assign", DispatchController, :assign
+    post "/dispatches/:id/cancel", DispatchController, :cancel
+    get "/drivers/:driver_id/dispatches", DispatchController, :for_driver
   end
 end

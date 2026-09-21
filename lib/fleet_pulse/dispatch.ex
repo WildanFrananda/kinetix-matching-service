@@ -15,7 +15,7 @@ defmodule FleetPulse.Dispatch do
   alias FleetPulse.Tracking.DriverState
   alias FleetPulse.Types
 
-  @type transition_error :: :not_found | :forbidden | :invalid_transition
+  @type transition_error :: :not_found | :forbidden | :invalid_transition | :invalid_proof
 
   @legal_transitions %{
     pending: [:cancelled],
@@ -365,21 +365,15 @@ defmodule FleetPulse.Dispatch do
   defp apply_transition(false, _order, _target, _pod_attrs), do: {:error, :invalid_transition}
 
   defp apply_transition(true, order, target, pod_attrs) do
-    photo = Map.get(pod_attrs, "pod_photo_url") || Map.get(pod_attrs, :pod_photo_url)
-    sig = Map.get(pod_attrs, "pod_signature") || Map.get(pod_attrs, :pod_signature)
-
-    changes = %{status: target}
-    changes = if photo, do: Map.put(changes, :pod_photo_url, photo), else: changes
-    changes = if sig, do: Map.put(changes, :pod_signature, sig), else: changes
-
     order
-    |> Ecto.Changeset.change(changes)
+    |> Order.pod_changeset(pod_attrs)
+    |> Ecto.Changeset.put_change(:status, target)
     |> Repo.update()
     |> after_transition()
   end
 
   @spec after_transition({:ok, Order.t()} | {:error, Order.changeset()}) ::
-          {:ok, Order.t()} | {:error, :invalid_transition}
+          {:ok, Order.t()} | {:error, :invalid_transition | :invalid_proof}
   defp after_transition({:ok, order}) do
     :ok = release_if_terminal(order)
     :ok = broadcast_transition(order)
@@ -388,7 +382,15 @@ defmodule FleetPulse.Dispatch do
     {:ok, order}
   end
 
-  defp after_transition({:error, _changeset}), do: {:error, :invalid_transition}
+  defp after_transition({:error, %Ecto.Changeset{errors: errors}}) do
+    proof_fields = [:pod_photo_url, :pod_signature]
+
+    if Enum.any?(errors, fn {field, _error} -> field in proof_fields end) do
+      {:error, :invalid_proof}
+    else
+      {:error, :invalid_transition}
+    end
+  end
 
   @spec release_if_terminal(Order.t()) :: :ok
   defp release_if_terminal(%Order{status: status, driver_id: driver_id})

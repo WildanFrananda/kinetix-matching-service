@@ -79,6 +79,49 @@ defmodule FleetPulse.Dispatch.Order do
     |> unique_constraint(:order_number)
   end
 
+  @max_pod_photo_url 2_048
+  @max_pod_signature 65_536
+
+  @spec pod_changeset(t(), map()) :: changeset()
+  def pod_changeset(%__MODULE__{} = order, attrs) do
+    order
+    |> cast(attrs, [:pod_photo_url, :pod_signature])
+    |> validate_length(:pod_photo_url, max: @max_pod_photo_url)
+    |> validate_length(:pod_signature, max: @max_pod_signature)
+    |> validate_change(:pod_photo_url, &validate_photo_reference/2)
+    |> validate_change(:pod_signature, &validate_signature_reference/2)
+  end
+
+  @spec validate_photo_reference(atom(), String.t()) :: [{atom(), String.t()}]
+  defp validate_photo_reference(field, value) do
+    case URI.new(value) do
+      {:ok, %URI{scheme: scheme, host: host}}
+      when scheme in ["http", "https"] and is_binary(host) and host != "" ->
+        []
+
+      _not_a_fetchable_url ->
+        [{field, "must be an http or https URL naming where the photo is stored"}]
+    end
+  end
+
+  @spec validate_signature_reference(atom(), String.t()) :: [{atom(), String.t()}]
+  defp validate_signature_reference(field, value) do
+    case URI.new(value) do
+      {:ok, %URI{scheme: "data"}} ->
+        []
+
+      {:ok, %URI{scheme: scheme, host: host}}
+      when scheme in ["http", "https"] and is_binary(host) and host != "" ->
+        []
+
+      _neither ->
+        [
+          {field,
+           "must be a data: URI carrying the signature, or a URL naming where it is stored"}
+        ]
+    end
+  end
+
   @spec validate_coordinate(changeset(), atom(), number(), number()) :: changeset()
   defp validate_coordinate(changeset, field, min, max) do
     validate_number(changeset, field,
