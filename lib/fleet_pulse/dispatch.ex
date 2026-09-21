@@ -25,22 +25,35 @@ defmodule FleetPulse.Dispatch do
 
   @type assign_error :: :no_driver_available | :not_found | :already_assigned
 
+  @type point :: {float(), float()}
+
   @type dispatch_error ::
           assign_error()
           | :blank_order_number
-          | {:not_geocodable, :pickup | :delivery, FleetPulse.Geocoding.Provider.error()}
+          | {:no_point, :pickup | :delivery}
           | :order_already_finished
           | Order.changeset()
 
-  @spec dispatch_for_order(String.t(), String.t(), String.t(), String.t()) ::
+  @spec dispatch_for_order(String.t(), String.t(), point() | nil, point() | nil) ::
           {:ok, Order.t()} | {:error, dispatch_error()}
-  def dispatch_for_order(order_number, merchant_principal_id, pickup_address, delivery_address) do
+  def dispatch_for_order(order_number, merchant_principal_id, pickup_point, delivery_point) do
     with {:ok, number} <- require_order_number(order_number),
-         {:ok, order} <-
-           find_or_book(number, merchant_principal_id, pickup_address, delivery_address) do
+         {:ok, pickup} <- require_point(pickup_point, :pickup),
+         {:ok, delivery} <- require_point(delivery_point, :delivery),
+         {:ok, order} <- find_or_book(number, merchant_principal_id, pickup, delivery) do
       assign_if_unassigned(order)
     end
   end
+
+  @spec require_point(point() | nil, :pickup | :delivery) ::
+          {:ok, point()} | {:error, {:no_point, :pickup | :delivery}}
+  defp require_point({latitude, longitude}, _end_of_journey)
+       when is_float(latitude) and is_float(longitude) and
+              latitude >= -90.0 and latitude <= 90.0 and
+              longitude >= -180.0 and longitude <= 180.0,
+       do: {:ok, {latitude, longitude}}
+
+  defp require_point(_absent, end_of_journey), do: {:error, {:no_point, end_of_journey}}
 
   @spec require_order_number(term()) :: {:ok, String.t()} | {:error, :blank_order_number}
   defp require_order_number(order_number) when is_binary(order_number) do
@@ -52,39 +65,26 @@ defmodule FleetPulse.Dispatch do
 
   defp require_order_number(_order_number), do: {:error, :blank_order_number}
 
-  @spec find_or_book(String.t(), String.t(), String.t(), String.t()) ::
+  @spec find_or_book(String.t(), String.t(), point(), point()) ::
           {:ok, Order.t()} | {:error, dispatch_error()}
-  defp find_or_book(order_number, merchant_principal_id, pickup_address, delivery_address) do
+  defp find_or_book(order_number, merchant_principal_id, pickup, delivery) do
     case Repo.get_by(Order, order_number: order_number) do
       %Order{} = existing -> {:ok, existing}
-      nil -> book(order_number, merchant_principal_id, pickup_address, delivery_address)
+      nil -> book(order_number, merchant_principal_id, pickup, delivery)
     end
   end
 
-  @spec book(String.t(), String.t(), String.t(), String.t()) ::
+  @spec book(String.t(), String.t(), point(), point()) ::
           {:ok, Order.t()} | {:error, dispatch_error()}
-  defp book(order_number, merchant_principal_id, pickup_address, delivery_address) do
-    with {:ok, {pickup_lat, pickup_lng}} <- geocode(pickup_address, :pickup),
-         {:ok, {drop_lat, drop_lng}} <- geocode(delivery_address, :delivery) do
-      create_order(%{
-        order_number: order_number,
-        merchant_principal_id: merchant_principal_id,
-        pickup_latitude: pickup_lat,
-        pickup_longitude: pickup_lng,
-        dropoff_latitude: drop_lat,
-        dropoff_longitude: drop_lng
-      })
-    end
-  end
-
-  @spec geocode(String.t(), :pickup | :delivery) ::
-          {:ok, FleetPulse.Geocoding.coordinates()}
-          | {:error, {:not_geocodable, :pickup | :delivery, term()}}
-  defp geocode(address, end_of_journey) do
-    case FleetPulse.Geocoding.coordinates_for(address) do
-      {:ok, coordinates} -> {:ok, coordinates}
-      {:error, reason} -> {:error, {:not_geocodable, end_of_journey, reason}}
-    end
+  defp book(order_number, merchant_principal_id, {pickup_lat, pickup_lng}, {drop_lat, drop_lng}) do
+    create_order(%{
+      order_number: order_number,
+      merchant_principal_id: merchant_principal_id,
+      pickup_latitude: pickup_lat,
+      pickup_longitude: pickup_lng,
+      dropoff_latitude: drop_lat,
+      dropoff_longitude: drop_lng
+    })
   end
 
   @spec assign_if_unassigned(Order.t()) :: {:ok, Order.t()} | {:error, dispatch_error()}

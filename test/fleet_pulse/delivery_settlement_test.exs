@@ -5,7 +5,6 @@ defmodule FleetPulse.DeliverySettlementTest do
 
   alias FleetPulse.Dispatch
   alias FleetPulse.Dispatch.Order
-  alias FleetPulse.FakeGeocoder
   alias FleetPulse.FakeOrder
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.StateCache
@@ -14,9 +13,6 @@ defmodule FleetPulse.DeliverySettlementTest do
 
   setup do
     Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
-    :ok = FakeGeocoder.start()
-    :ok = FakeGeocoder.reset()
-    FakeGeocoder.always({:ok, %{latitude: elem(@pickup, 0), longitude: elem(@pickup, 1)}})
     :ok = FakeOrder.start()
     :ok = FakeOrder.reset()
     :ok
@@ -51,8 +47,8 @@ defmodule FleetPulse.DeliverySettlementTest do
       Dispatch.dispatch_for_order(
         order_number,
         "merchant-1",
-        "Gudang, Jakarta",
-        "Sudirman, Jakarta"
+        @pickup,
+        {-6.2088, 106.8456}
       )
 
     {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
@@ -130,7 +126,7 @@ defmodule FleetPulse.DeliverySettlementTest do
     number = "ORD-#{System.unique_integer([:positive])}"
 
     {:ok, order} =
-      Dispatch.dispatch_for_order(number, "merchant-1", "Gudang, Jakarta", "Sudirman, Jakarta")
+      Dispatch.dispatch_for_order(number, "merchant-1", @pickup, {-6.2088, 106.8456})
 
     {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
     {:ok, delivered} = Dispatch.mark_delivered(order.id, driver.id, %{})
@@ -146,7 +142,7 @@ defmodule FleetPulse.DeliverySettlementTest do
     number = "ORD-#{System.unique_integer([:positive])}"
 
     {:ok, order} =
-      Dispatch.dispatch_for_order(number, "merchant-1", "Gudang, Jakarta", "Sudirman, Jakarta")
+      Dispatch.dispatch_for_order(number, "merchant-1", @pickup, {-6.2088, 106.8456})
 
     assigned = order.driver_id
     refute assigned == nil

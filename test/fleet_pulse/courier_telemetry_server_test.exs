@@ -6,10 +6,9 @@ defmodule FleetPulse.CourierTelemetryServerTest do
   alias FleetPulse.CourierTelemetryServer
   alias FleetPulse.Dispatch
   alias FleetPulse.Dispatch.Order
-  alias FleetPulse.FakeGeocoder
   alias FleetPulse.FakeIdentity
   alias FleetPulse.FakeOrder
-  alias FleetPulse.Proto.Common.V1.Address
+  alias FleetPulse.Proto.Common.V1.GeoPoint
   alias FleetPulse.Proto.Fleet.V1.DispatchCourierRequest
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.StateCache
@@ -19,9 +18,6 @@ defmodule FleetPulse.CourierTelemetryServerTest do
 
   setup do
     Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
-    :ok = FakeGeocoder.start()
-    :ok = FakeGeocoder.reset()
-    FakeGeocoder.always({:ok, %{latitude: elem(@pickup, 0), longitude: elem(@pickup, 1)}})
     :ok = FakeOrder.start()
     :ok = FakeOrder.reset()
     :ok = FakeIdentity.start()
@@ -30,6 +26,26 @@ defmodule FleetPulse.CourierTelemetryServerTest do
   end
 
   defp order_number, do: "ORD-#{System.unique_integer([:positive])}"
+
+  defp dispatch_without_point(number, which) do
+    pickup =
+      if which == :pickup,
+        do: nil,
+        else: %GeoPoint{latitude: elem(@pickup, 0), longitude: elem(@pickup, 1)}
+
+    delivery =
+      if which == :delivery, do: nil, else: %GeoPoint{latitude: -6.2088, longitude: 106.8456}
+
+    CourierTelemetryServer.dispatch_courier(
+      %DispatchCourierRequest{
+        merchant_principal_id: @merchant,
+        order_number: number,
+        pickup_point: pickup,
+        delivery_point: delivery
+      },
+      nil
+    )
+  end
 
   defp track!(driver) do
     on_exit(fn ->
@@ -61,8 +77,8 @@ defmodule FleetPulse.CourierTelemetryServerTest do
         merchant_principal_id: @merchant,
         order_id: "the caller's own id, not ours",
         order_number: number,
-        pickup_address: %Address{street_address: "Gudang Kinetix, Jakarta"},
-        delivery_address: %Address{street_address: "Jl. Sudirman 5, Jakarta"}
+        pickup_point: %GeoPoint{latitude: elem(@pickup, 0), longitude: elem(@pickup, 1)},
+        delivery_point: %GeoPoint{latitude: -6.2088, longitude: 106.8456}
       },
       nil
     )
@@ -115,13 +131,17 @@ defmodule FleetPulse.CourierTelemetryServerTest do
       assert res.assigned_driver_phone == ""
     end
 
-    test "geocodes both ends, because drivers are chosen by distance" do
+    test "books the job at the points the caller gave, without asking anyone where they are" do
       payable_driver()
+      number = order_number()
 
-      dispatch(order_number())
+      dispatch(number)
 
-      assert "gudang kinetix, jakarta" in FakeGeocoder.calls()
-      assert "jl. sudirman 5, jakarta" in FakeGeocoder.calls()
+      job = Repo.get_by!(Order, order_number: number)
+      assert job.pickup_latitude == elem(@pickup, 0)
+      assert job.pickup_longitude == elem(@pickup, 1)
+      assert job.dropoff_latitude == -6.2088
+      assert job.dropoff_longitude == 106.8456
     end
 
     test "a repeated dispatch finds the job it already booked" do
@@ -160,25 +180,42 @@ defmodule FleetPulse.CourierTelemetryServerTest do
       assert Repo.aggregate(Order, :count) == 0
     end
 
-    test "refuses when the address cannot be turned into a location" do
+    test "refuses when no delivery point was given, rather than dispatching blind" do
       payable_driver()
-      FakeGeocoder.always({:error, :not_found})
 
-      res = dispatch(order_number())
+      res = dispatch_without_point(order_number(), :delivery)
 
       assert res.success == false
-      assert res.error.error_code == "ADDRESS_NOT_GEOCODABLE"
+      assert res.error.error_code == "NO_POINT"
       assert Repo.aggregate(Order, :count) == 0
     end
 
-    test "refuses when the geocoder is unreachable, rather than dispatching blind" do
+    test "refuses when no pickup point was given" do
       payable_driver()
-      FakeGeocoder.always({:error, :unavailable})
 
-      res = dispatch(order_number())
+      res = dispatch_without_point(order_number(), :pickup)
 
       assert res.success == false
-      assert res.error.error_code == "ADDRESS_NOT_GEOCODABLE"
+      assert res.error.error_code == "NO_POINT"
+      assert Repo.aggregate(Order, :count) == 0
+    end
+
+    test "treats 0,0 as absent, because it is a real place in the Atlantic" do
+      payable_driver()
+
+      res =
+        CourierTelemetryServer.dispatch_courier(
+          %DispatchCourierRequest{
+            merchant_principal_id: @merchant,
+            order_number: order_number(),
+            pickup_point: %GeoPoint{latitude: 0.0, longitude: 0.0},
+            delivery_point: %GeoPoint{latitude: -6.2088, longitude: 106.8456}
+          },
+          nil
+        )
+
+      assert res.success == false
+      assert res.error.error_code == "NO_POINT"
     end
 
     test "refuses an assignment to a driver who cannot be paid" do
