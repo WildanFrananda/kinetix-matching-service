@@ -83,7 +83,8 @@ defmodule FleetPulse.Dispatch do
       pickup_latitude: pickup_lat,
       pickup_longitude: pickup_lng,
       dropoff_latitude: drop_lat,
-      dropoff_longitude: drop_lng
+      dropoff_longitude: drop_lng,
+      awb_number: Order.issue_awb()
     })
   end
 

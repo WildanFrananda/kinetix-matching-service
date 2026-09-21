@@ -6,7 +6,6 @@ defmodule FleetPulse.CourierTelemetryServerTest do
   alias FleetPulse.CourierTelemetryServer
   alias FleetPulse.Dispatch
   alias FleetPulse.Dispatch.Order
-  alias FleetPulse.FakeIdentity
   alias FleetPulse.FakeOrder
   alias FleetPulse.Proto.Common.V1.GeoPoint
   alias FleetPulse.Proto.Fleet.V1.DispatchCourierRequest
@@ -20,8 +19,6 @@ defmodule FleetPulse.CourierTelemetryServerTest do
     Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
     :ok = FakeOrder.start()
     :ok = FakeOrder.reset()
-    :ok = FakeIdentity.start()
-    :ok = FakeIdentity.reset()
     :ok
   end
 
@@ -100,7 +97,6 @@ defmodule FleetPulse.CourierTelemetryServerTest do
 
     test "answers with the driver's principal, which is who gets paid" do
       {_driver, principal} = payable_driver()
-      FakeIdentity.profile("Budi Santoso", "081200000000")
 
       res = dispatch(order_number())
 
@@ -108,27 +104,35 @@ defmodule FleetPulse.CourierTelemetryServerTest do
       assert String.starts_with?(res.dispatch_ref, "DISP-")
     end
 
-    test "names the driver from identity, not from a column here" do
-      {_driver, principal} = payable_driver()
-      FakeIdentity.profile("Budi Santoso", "081200000000")
+    test "does not name the person, and does not ask identity who they are" do
+      payable_driver()
 
       res = dispatch(order_number())
 
-      assert res.assigned_driver_name == "Budi Santoso"
-      assert res.assigned_driver_phone == "081200000000"
-      assert FakeIdentity.calls() == [principal]
-    end
-
-    test "still assigns a driver when identity cannot be reached" do
-      {_driver, principal} = payable_driver()
-      FakeIdentity.always({:error, :unavailable})
-
-      res = dispatch(order_number())
-
-      assert res.success
-      assert res.assigned_driver_principal_id == principal
       assert res.assigned_driver_name == ""
       assert res.assigned_driver_phone == ""
+      refute Code.ensure_loaded?(FleetPulse.Clients.Identity)
+    end
+
+    test "issues a tracking number with the dispatch" do
+      payable_driver()
+      number = order_number()
+
+      res = dispatch(number)
+
+      assert String.starts_with?(res.awb_number, "KNX-")
+      assert Repo.get_by(Order, order_number: number).awb_number == res.awb_number
+    end
+
+    test "answers the same tracking number when the same order is dispatched twice" do
+      payable_driver()
+      number = order_number()
+
+      first = dispatch(number)
+      second = dispatch(number)
+
+      assert first.awb_number != ""
+      assert second.awb_number == first.awb_number
     end
 
     test "books the job at the points the caller gave, without asking anyone where they are" do
