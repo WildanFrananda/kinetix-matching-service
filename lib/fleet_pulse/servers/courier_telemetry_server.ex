@@ -7,7 +7,6 @@ defmodule FleetPulse.CourierTelemetryServer do
 
   require Logger
 
-  alias FleetPulse.Clients.Identity
   alias FleetPulse.Dispatch
   alias FleetPulse.Proto.Common.V1.ErrorDetail
   alias FleetPulse.Proto.Fleet.V1.DispatchCourierResponse
@@ -35,34 +34,16 @@ defmodule FleetPulse.CourierTelemetryServer do
         "[FleetPulse gRPC Server] Order #{order.id} assigned to driver #{driver.id} (#{principal_id})"
       )
 
-      %{full_name: full_name, phone_number: phone_number} = person(principal_id)
-
       %DispatchCourierResponse{
         success: true,
         dispatch_ref: "DISP-" <> Integer.to_string(order.id),
         assigned_driver_principal_id: principal_id,
-        assigned_driver_name: full_name,
-        assigned_driver_phone: phone_number,
         vehicle: driver.vehicle_plate || "",
-        eta_minutes: 10
+        eta_minutes: 10,
+        awb_number: order.awb_number || ""
       }
     else
       {:error, reason} -> refuse(request, reason)
-    end
-  end
-
-  @spec person(String.t()) :: FleetPulse.Clients.Identity.profile()
-  defp person(principal_id) do
-    case Identity.profile_of(principal_id) do
-      {:ok, profile} ->
-        profile
-
-      {:error, reason} ->
-        Logger.warning(
-          "[Identity] dispatch names no driver for #{principal_id}: #{reason}. The assignment stands."
-        )
-
-        %{full_name: "", phone_number: ""}
     end
   end
 

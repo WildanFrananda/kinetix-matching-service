@@ -24,6 +24,7 @@ defmodule FleetPulse.Dispatch.Order do
           driver_id: Types.id() | nil,
           order_number: String.t() | nil,
           merchant_principal_id: integer() | nil,
+          awb_number: String.t() | nil,
           pod_photo_url: String.t() | nil,
           pod_signature: String.t() | nil,
           driver: Driver.t() | Ecto.Association.NotLoaded.t() | nil,
@@ -53,6 +54,7 @@ defmodule FleetPulse.Dispatch.Order do
     field :assigned_at, :utc_datetime_usec
     field :order_number, :string
     field :merchant_principal_id, :string
+    field :awb_number, :string
     field :pod_photo_url, :string
     field :pod_signature, :string
 
@@ -67,7 +69,10 @@ defmodule FleetPulse.Dispatch.Order do
   @spec changeset(t(), map()) :: changeset()
   def changeset(%__MODULE__{} = order, attrs) do
     order
-    |> cast(attrs, @required_fields ++ [:weight_kg, :merchant_principal_id, :order_number])
+    |> cast(
+      attrs,
+      @required_fields ++ [:weight_kg, :merchant_principal_id, :order_number, :awb_number]
+    )
     |> validate_required(@required_fields)
     |> validate_coordinate(:pickup_latitude, -90, 90)
     |> validate_coordinate(:pickup_longitude, -180, 180)
@@ -77,6 +82,17 @@ defmodule FleetPulse.Dispatch.Order do
     |> check_constraint(:pickup_latitude, name: :orders_pickup_latitude_range)
     |> check_constraint(:dropoff_latitude, name: :orders_dropoff_latitude_range)
     |> unique_constraint(:order_number)
+    |> unique_constraint(:awb_number)
+  end
+
+  @awb_prefix "KNX"
+
+  @spec issue_awb() :: String.t()
+  def issue_awb do
+    day = Date.utc_today() |> Date.to_iso8601(:basic)
+    suffix = 8 |> :crypto.strong_rand_bytes() |> Base.encode32(padding: false)
+
+    "#{@awb_prefix}-#{day}-#{suffix}"
   end
 
   @max_pod_photo_url 2_048

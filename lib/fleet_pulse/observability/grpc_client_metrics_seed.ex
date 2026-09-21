@@ -8,8 +8,7 @@ defmodule FleetPulse.Observability.GrpcClientMetricsSeed do
   @seed %{count: 0}
 
   @calls [
-    {"order", "/order.v1.OrderService/OrderDelivered"},
-    {"identity", "/identity.v1.IdentityService/GetUserProfile"}
+    {"order", "/order.v1.OrderService/OrderDelivered"}
   ]
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()

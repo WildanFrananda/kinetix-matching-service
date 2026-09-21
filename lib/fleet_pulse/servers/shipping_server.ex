@@ -11,7 +11,6 @@ defmodule FleetPulse.Servers.ShippingServer do
 
   require Logger
 
-  alias FleetPulse.Proto.Common.V1.Money
   alias FleetPulse.Proto.Shipping.V1.CourierOption
   alias FleetPulse.Proto.Shipping.V1.EstimateShippingOptionsResponse
   alias FleetPulse.Shipping
@@ -50,10 +49,6 @@ defmodule FleetPulse.Servers.ShippingServer do
           service_tier: opt.service_tier,
           service_name: opt.service_name,
           distance_km: opt.distance_km,
-          base_shipping_fee: %Money{
-            amount_minor: round(opt.base_shipping_fee * 100),
-            currency: "IDR"
-          },
           estimated_delivery_time: opt.estimated_delivery_time,
           is_available: opt.is_available,
           unavailable_reason: opt.unavailable_reason || ""
