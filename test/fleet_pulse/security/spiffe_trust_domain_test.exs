@@ -19,6 +19,24 @@ defmodule FleetPulse.Security.SpiffeTrustDomainTest do
   describe "trust_domain/0" do
     test "keeps the domain the estate runs today when the variable is unset" do
       assert Spiffe.trust_domain() == "kinetix.local"
+      assert Spiffe.trust_domains() == ["kinetix.local"]
+    end
+
+    test "accepts a comma-separated list, which is what makes a cutover gradual" do
+      System.put_env("KINETIX_TRUST_DOMAIN", "kinetix.local, prod.kinetix")
+      assert Spiffe.trust_domains() == ["kinetix.local", "prod.kinetix"]
+
+      for domain <- ["kinetix.local", "prod.kinetix"] do
+        id = "spiffe://" <> domain <> "/service/order"
+        named = Enum.find_value(Spiffe.trust_domains(), fn d -> Spiffe.service_in(id, d) end)
+        assert named == {:ok, "order"}
+      end
+    end
+
+    test "still refuses a domain outside the list" do
+      System.put_env("KINETIX_TRUST_DOMAIN", "kinetix.local,prod.kinetix")
+      id = "spiffe://staging.kinetix/service/order"
+      assert Enum.find_value(Spiffe.trust_domains(), fn d -> Spiffe.service_in(id, d) end) == nil
     end
 
     test "can be pointed at another domain without recompiling" do

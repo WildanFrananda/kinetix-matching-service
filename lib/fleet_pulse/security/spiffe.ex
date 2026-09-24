@@ -25,19 +25,22 @@ defmodule FleetPulse.Security.Spiffe do
 
   @default_trust_domain "kinetix.local"
 
-  @spec trust_domain() :: String.t()
-  def trust_domain do
-    case System.get_env("KINETIX_TRUST_DOMAIN") do
-      nil ->
-        @default_trust_domain
+  @spec trust_domains() :: [String.t()]
+  def trust_domains do
+    configured =
+      System.get_env("KINETIX_TRUST_DOMAIN", "")
+      |> String.split(",")
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
 
-      value ->
-        case String.trim(value) do
-          "" -> @default_trust_domain
-          trimmed -> trimmed
-        end
+    case configured do
+      [] -> [@default_trust_domain]
+      domains -> domains
     end
   end
+
+  @spec trust_domain() :: String.t()
+  def trust_domain, do: hd(trust_domains())
 
   @spec prefix_for(String.t()) :: String.t()
   def prefix_for(domain), do: "spiffe://" <> domain <> "/service/"
@@ -47,7 +50,9 @@ defmodule FleetPulse.Security.Spiffe do
     der
     |> :public_key.pkix_decode_cert(:otp)
     |> uri_sans()
-    |> Enum.find_value(:error, &service_in(&1, trust_domain()))
+    |> Enum.find_value(:error, fn uri ->
+      Enum.find_value(trust_domains(), fn domain -> service_in(uri, domain) end)
+    end)
   rescue
     _malformed -> :error
   end
