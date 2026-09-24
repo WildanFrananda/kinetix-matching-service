@@ -1,10 +1,6 @@
 defmodule FleetPulse.Security.Spiffe do
   @moduledoc """
   Reads the SPIFFE identity out of a peer certificate.
-
-  A SPIFFE id lives in a URI subject-alternative name — `spiffe://kinetix.local/service/order` —
-  and not in the common name. The CN is a display string anything can be issued with; the URI SAN
-  is the field the CA is asserting.
   """
 
   require Record
@@ -27,20 +23,31 @@ defmodule FleetPulse.Security.Spiffe do
     Record.extract(:Extension, from_lib: "public_key/include/public_key.hrl")
   )
 
-  @trust_domain "spiffe://kinetix.local/service/"
+  @default_trust_domain "kinetix.local"
 
-  @doc """
-  The service name a DER-encoded peer certificate asserts, or `:error` when it asserts none.
+  @spec trust_domain() :: String.t()
+  def trust_domain do
+    case System.get_env("KINETIX_TRUST_DOMAIN") do
+      nil ->
+        @default_trust_domain
 
-  `:error` rather than a default: a certificate from our own CA carrying no SPIFFE id is one this
-  mesh cannot place, and treating it as anonymous is the only honest reading.
-  """
+      value ->
+        case String.trim(value) do
+          "" -> @default_trust_domain
+          trimmed -> trimmed
+        end
+    end
+  end
+
+  @spec prefix_for(String.t()) :: String.t()
+  def prefix_for(domain), do: "spiffe://" <> domain <> "/service/"
+
   @spec service_of(binary()) :: {:ok, String.t()} | :error
   def service_of(der) when is_binary(der) do
     der
     |> :public_key.pkix_decode_cert(:otp)
     |> uri_sans()
-    |> Enum.find_value(:error, &parse/1)
+    |> Enum.find_value(:error, &service_in(&1, trust_domain()))
   rescue
     _malformed -> :error
   end
@@ -61,13 +68,14 @@ defmodule FleetPulse.Security.Spiffe do
     end)
   end
 
-  @spec parse(String.t()) :: {:ok, String.t()} | nil
-  defp parse(uri) do
-    with %URI{scheme: "spiffe", host: "kinetix.local", path: path} when is_binary(path) <-
-           URI.parse(uri),
-         normalised = "spiffe://kinetix.local" <> Path.expand(path, "/"),
-         true <- String.starts_with?(normalised, @trust_domain),
-         service = String.replace_prefix(normalised, @trust_domain, ""),
+  @spec service_in(String.t(), String.t()) :: {:ok, String.t()} | nil
+  def service_in(uri, domain) do
+    prefix = prefix_for(domain)
+
+    with %URI{scheme: "spiffe", host: ^domain, path: path} when is_binary(path) <- URI.parse(uri),
+         normalised = "spiffe://" <> domain <> Path.expand(path, "/"),
+         true <- String.starts_with?(normalised, prefix),
+         service = String.replace_prefix(normalised, prefix, ""),
          true <- service != "" and not String.contains?(service, "/") do
       {:ok, service}
     else
