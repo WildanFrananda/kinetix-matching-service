@@ -1,7 +1,7 @@
 defmodule FleetPulseWeb.Api.V1.DriverController do
   @moduledoc """
-  Read-only fleet tracking for partner applications. Reads from the in-memory
-  cache — no database round trip per request.
+  Read-only fleet tracking for the backoffice. Reads from the in-memory cache — no database round
+  trip per request.
   """
 
   use FleetPulseWeb, :controller
@@ -30,6 +30,9 @@ defmodule FleetPulseWeb.Api.V1.DriverController do
       {:ok, coordinates, radius_km} ->
         results = Tracking.nearby(coordinates, radius_km, status: :any)
         json(conn, %{data: Enum.map(results, &serialize_nearby/1)})
+
+      :error ->
+        error(conn, :bad_request, "invalid_nearby_query")
     end
   end
 

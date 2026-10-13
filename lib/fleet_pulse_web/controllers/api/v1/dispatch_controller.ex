@@ -105,10 +105,14 @@ defmodule FleetPulseWeb.Api.V1.DispatchController do
 
   @spec serialize_with_proof(Order.t()) :: map()
   defp serialize_with_proof(%Order{} = order) do
-    Map.put(serialize(order), :proof_of_delivery, %{
-      photo_url: order.pod_photo_url,
-      signature: order.pod_signature
-    })
+    Map.put(
+      serialize(order),
+      :proof_of_delivery,
+      %{
+        photo_url: Dispatch.photo_for_review(order),
+        signature: order.pod_signature
+      }
+    )
   end
 
   @spec parse_status(String.t()) :: {:ok, Order.status() | :all} | :error

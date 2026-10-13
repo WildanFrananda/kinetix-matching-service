@@ -11,7 +11,7 @@ defmodule FleetPulseWeb.Api.V1.DriverControllerTest do
 
     conn =
       conn
-      |> authenticate(role: "seller")
+      |> authenticate(role: "admin")
       |> put_req_header("accept", "application/json")
 
     %{conn: conn}
@@ -76,5 +76,30 @@ defmodule FleetPulseWeb.Api.V1.DriverControllerTest do
       |> json_response(401)
 
     assert body["error"] == "unauthorized"
+  end
+
+  test "a seller is refused every courier's position", %{conn: conn} do
+    track!(-6.2, 106.8)
+
+    seller =
+      conn
+      |> recycle()
+      |> authenticate(role: "seller")
+      |> put_req_header("accept", "application/json")
+
+    assert seller |> get(~p"/api/v1/drivers") |> json_response(403)
+
+    assert seller
+           |> recycle()
+           |> authenticate(role: "seller")
+           |> get(~p"/api/v1/drivers/nearby")
+           |> json_response(403)
+  end
+
+  test "a nearby query that cannot be read is a bad request, not a crash", %{conn: conn} do
+    assert %{"error" => "invalid_nearby_query"} =
+             conn
+             |> get(~p"/api/v1/drivers/nearby?latitude=north&longitude=106.8")
+             |> json_response(400)
   end
 end

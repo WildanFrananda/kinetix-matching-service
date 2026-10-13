@@ -5,17 +5,25 @@ defmodule FleetPulse.Dispatch do
 
   import Ecto.Query
 
-  require Logger
-
-  alias FleetPulse.Clients.Order, as: OrderClient
+  alias FleetPulse.Dispatch.DeliveryReport
   alias FleetPulse.Dispatch.Events
   alias FleetPulse.Dispatch.Order
   alias FleetPulse.Repo
+  alias FleetPulse.Storage
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.DriverState
   alias FleetPulse.Types
 
-  @type transition_error :: :not_found | :forbidden | :invalid_transition | :invalid_proof
+  @type transition_error ::
+          :not_found
+          | :forbidden
+          | :invalid_transition
+          | :invalid_proof
+          | :proof_unverifiable
+
+  @type pod_upload :: %{upload_url: String.t(), photo_url: String.t()}
+
+  @pod_key ~r|\Apod/(\d+)/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg\z|
 
   @legal_transitions %{
     pending: [:cancelled],
@@ -197,6 +205,28 @@ defmodule FleetPulse.Dispatch do
     result
   end
 
+  @spec pod_upload(Types.id(), Types.id()) ::
+          {:ok, pod_upload()} | {:error, :not_found | :forbidden | :invalid_transition}
+  def pod_upload(order_id, driver_id) do
+    with {:ok, order} <- fetch_order(order_id),
+         :ok <- ensure_owner(order, driver_id),
+         :ok <- ensure_picked_up(order) do
+      key = "pod/#{order.id}/#{Ecto.UUID.generate()}.jpg"
+
+      {:ok, %{upload_url: Storage.upload_url(key), photo_url: Storage.object_url(key)}}
+    end
+  end
+
+  @spec photo_for_review(Order.t()) :: String.t() | nil
+  def photo_for_review(%Order{pod_photo_url: nil}), do: nil
+
+  def photo_for_review(%Order{pod_photo_url: url}) do
+    case Storage.key_of(url) do
+      {:ok, key} -> Storage.read_url(key)
+      :error -> url
+    end
+  end
+
   @spec mark_picked_up(Types.id(), Types.id()) :: {:ok, Order.t()} | {:error, transition_error()}
   def mark_picked_up(order_id, driver_id) do
     transition_by_driver(order_id, driver_id, :picked_up)
@@ -206,58 +236,17 @@ defmodule FleetPulse.Dispatch do
           {:ok, Order.t()} | {:error, transition_error()}
   def mark_delivered(order_id, driver_id, pod_attrs \\ %{}) do
     case transition_by_driver(order_id, driver_id, :delivered, pod_attrs) do
-      {:ok, order} ->
-        _ = report_delivered(order, driver_id)
+      {:ok, %Order{order_number: nil} = order} ->
         {:ok, order}
+
+      {:ok, order} ->
+        {_outcome, reported} = DeliveryReport.attempt(order)
+        {:ok, reported}
 
       {:error, reason} ->
         {:error, reason}
     end
   end
-
-  @spec report_delivered(Order.t(), Types.id()) :: :ok
-  defp report_delivered(%Order{order_number: nil} = order, _driver_id) do
-    Logger.warning(
-      "[Order] fleet job #{order.id} has no order number, so no delivery can be reported"
-    )
-
-    :ok
-  end
-
-  defp report_delivered(%Order{} = order, driver_id) do
-    with {:ok, driver} <- Tracking.fetch_driver(driver_id),
-         {:ok, principal} <- payable_principal(driver) do
-      case OrderClient.delivered(order.order_number, principal, DateTime.utc_now()) do
-        :ok ->
-          :ok
-
-        {:error, reason} ->
-          Logger.error(
-            "[Order] #{order.order_number} was delivered by #{principal} but order did not " <>
-              "record it (#{reason}). The delivery stands; the courier's fee is unrecorded until " <>
-              "this is reported again."
-          )
-
-          :ok
-      end
-    else
-      _unpayable ->
-        Logger.error(
-          "[Order] #{order.order_number} was delivered by driver #{driver_id}, who has no " <>
-            "identity principal. Nobody can be paid for this delivery until that is linked."
-        )
-
-        :ok
-    end
-  end
-
-  @spec payable_principal(FleetPulse.Tracking.Driver.t()) ::
-          {:ok, String.t()} | {:error, :unlinked}
-  defp payable_principal(%{principal_id: principal})
-       when is_binary(principal) and principal != "",
-       do: {:ok, principal}
-
-  defp payable_principal(_driver), do: {:error, :unlinked}
 
   @spec cancel_order(Types.id()) :: {:ok, Order.t()} | {:error, :not_found | :invalid_transition}
   def cancel_order(order_id) do
@@ -265,6 +254,29 @@ defmodule FleetPulse.Dispatch do
       transition(order, :cancelled)
     end
   end
+
+  @spec ensure_picked_up(Order.t()) :: :ok | {:error, :invalid_transition}
+  defp ensure_picked_up(%Order{status: :picked_up}), do: :ok
+  defp ensure_picked_up(%Order{}), do: {:error, :invalid_transition}
+
+  @spec verify_photo(Order.t(), map()) :: :ok | {:error, :invalid_proof | :proof_unverifiable}
+  defp verify_photo(order, %{"pod_photo_url" => url}) when is_binary(url) do
+    with {:ok, key} <- Storage.key_of(url),
+         [_key, id] <- Regex.run(@pod_key, key),
+         true <- id == Integer.to_string(order.id) do
+      photo_present(Storage.exists?(key))
+    else
+      _not_this_jobs_photo -> {:error, :invalid_proof}
+    end
+  end
+
+  defp verify_photo(_order, _attrs), do: {:error, :invalid_proof}
+
+  @spec photo_present({:ok, boolean()} | {:error, :unavailable}) ::
+          :ok | {:error, :invalid_proof | :proof_unverifiable}
+  defp photo_present({:ok, true}), do: :ok
+  defp photo_present({:ok, false}), do: {:error, :invalid_proof}
+  defp photo_present({:error, :unavailable}), do: {:error, :proof_unverifiable}
 
   @spec ensure_pending(Order.t()) :: :ok | {:error, :already_assigned}
   defp ensure_pending(%Order{status: :pending}), do: :ok
@@ -351,7 +363,7 @@ defmodule FleetPulse.Dispatch do
   defp ensure_owner(%Order{}, _driver_id), do: {:error, :forbidden}
 
   @spec transition(Order.t(), Order.status(), map()) ::
-          {:ok, Order.t()} | {:error, :invalid_transition}
+          {:ok, Order.t()} | {:error, :invalid_transition | :invalid_proof | :proof_unverifiable}
   defp transition(%Order{status: current} = order, target, pod_attrs \\ %{}) do
     apply_transition(legal?(current, target), order, target, pod_attrs)
   end
@@ -362,8 +374,18 @@ defmodule FleetPulse.Dispatch do
   end
 
   @spec apply_transition(boolean(), Order.t(), Order.status(), map()) ::
-          {:ok, Order.t()} | {:error, :invalid_transition}
+          {:ok, Order.t()} | {:error, :invalid_transition | :invalid_proof | :proof_unverifiable}
   defp apply_transition(false, _order, _target, _pod_attrs), do: {:error, :invalid_transition}
+
+  defp apply_transition(true, order, :delivered, pod_attrs) do
+    with :ok <- verify_photo(order, pod_attrs) do
+      order
+      |> Order.delivery_changeset(pod_attrs, DateTime.utc_now())
+      |> Ecto.Changeset.put_change(:status, :delivered)
+      |> Repo.update()
+      |> after_transition()
+    end
+  end
 
   defp apply_transition(true, order, target, pod_attrs) do
     order

@@ -39,7 +39,6 @@ defmodule FleetPulse.CourierTelemetryServer do
         dispatch_ref: "DISP-" <> Integer.to_string(order.id),
         assigned_driver_principal_id: principal_id,
         vehicle: driver.vehicle_plate || "",
-        eta_minutes: 10,
         awb_number: order.awb_number || ""
       }
     else
@@ -86,7 +85,6 @@ defmodule FleetPulse.CourierTelemetryServer do
       assigned_driver_name: "",
       assigned_driver_phone: "",
       vehicle: "",
-      eta_minutes: 0,
       error: %ErrorDetail{error_code: code, message: message}
     }
   end
@@ -99,10 +97,12 @@ defmodule FleetPulse.CourierTelemetryServer do
     do: {"ORDER_ALREADY_FINISHED", "that order has already been delivered or cancelled"}
 
   defp describe({:no_point, which}) do
-    {"NO_POINT",
-     "no #{which} point was given, so no driver can be chosen by distance. The caller owns the " <>
-       "address and the point it resolves to; dispatch refuses rather than sending a courier to " <>
-       "0,0, which is a real place in the Atlantic."}
+    {
+      "NO_POINT",
+      "no #{which} point was given, so no driver can be chosen by distance. The caller owns the " <>
+        "address and the point it resolves to; dispatch refuses rather than sending a courier to " <>
+        "0,0, which is a real place in the Atlantic."
+    }
   end
 
   defp describe(:not_found), do: {"NO_SUCH_ORDER", "no order with that id"}
@@ -114,9 +114,11 @@ defmodule FleetPulse.CourierTelemetryServer do
     do: {"NO_DRIVER_AVAILABLE", "no online driver is within range with enough capacity"}
 
   defp describe({:driver_not_payable, order_id, driver_id}) do
-    {"DRIVER_NOT_PAYABLE",
-     "order #{order_id} is assigned to driver #{driver_id}, who has no identity principal and " <>
-       "cannot be paid. The assignment stands; link or reassign the driver."}
+    {
+      "DRIVER_NOT_PAYABLE",
+      "order #{order_id} is assigned to driver #{driver_id}, who has no identity principal and " <>
+        "cannot be paid. The assignment stands; link or reassign the driver."
+    }
   end
 
   defp describe(%Ecto.Changeset{} = changeset) do

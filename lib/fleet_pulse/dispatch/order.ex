@@ -23,10 +23,15 @@ defmodule FleetPulse.Dispatch.Order do
           status: status() | nil,
           driver_id: Types.id() | nil,
           order_number: String.t() | nil,
-          merchant_principal_id: integer() | nil,
+          merchant_principal_id: String.t() | nil,
           awb_number: String.t() | nil,
           pod_photo_url: String.t() | nil,
           pod_signature: String.t() | nil,
+          delivered_at: DateTime.t() | nil,
+          delivery_reported_at: DateTime.t() | nil,
+          delivery_report_attempts: non_neg_integer(),
+          delivery_report_next_at: DateTime.t() | nil,
+          delivery_report_error: String.t() | nil,
           driver: Driver.t() | Ecto.Association.NotLoaded.t() | nil,
           assigned_at: DateTime.t() | nil,
           inserted_at: DateTime.t() | nil,
@@ -57,6 +62,11 @@ defmodule FleetPulse.Dispatch.Order do
     field :awb_number, :string
     field :pod_photo_url, :string
     field :pod_signature, :string
+    field :delivered_at, :utc_datetime_usec
+    field :delivery_reported_at, :utc_datetime_usec
+    field :delivery_report_attempts, :integer, default: 0
+    field :delivery_report_next_at, :utc_datetime_usec
+    field :delivery_report_error, :string
 
     belongs_to :driver, Driver
 
@@ -108,6 +118,19 @@ defmodule FleetPulse.Dispatch.Order do
     |> validate_change(:pod_signature, &validate_signature_reference/2)
   end
 
+  @spec delivery_changeset(t(), map(), DateTime.t()) :: changeset()
+  def delivery_changeset(%__MODULE__{} = order, attrs, delivered_at) do
+    order
+    |> pod_changeset(attrs)
+    |> validate_required([:pod_photo_url])
+    |> put_change(:delivered_at, delivered_at)
+    |> put_change(:delivery_report_next_at, report_due_at(order, delivered_at))
+  end
+
+  @spec report_due_at(t(), DateTime.t()) :: DateTime.t() | nil
+  defp report_due_at(%__MODULE__{order_number: nil}, _delivered_at), do: nil
+  defp report_due_at(%__MODULE__{}, delivered_at), do: DateTime.add(delivered_at, 60, :second)
+
   @spec validate_photo_reference(atom(), String.t()) :: [{atom(), String.t()}]
   defp validate_photo_reference(field, value) do
     case URI.new(value) do
@@ -132,15 +155,19 @@ defmodule FleetPulse.Dispatch.Order do
 
       _neither ->
         [
-          {field,
-           "must be a data: URI carrying the signature, or a URL naming where it is stored"}
+          {
+            field,
+            "must be a data: URI carrying the signature, or a URL naming where it is stored"
+          }
         ]
     end
   end
 
   @spec validate_coordinate(changeset(), atom(), number(), number()) :: changeset()
   defp validate_coordinate(changeset, field, min, max) do
-    validate_number(changeset, field,
+    validate_number(
+      changeset,
+      field,
       greater_than_or_equal_to: min,
       less_than_or_equal_to: max
     )

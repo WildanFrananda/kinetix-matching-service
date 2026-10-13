@@ -21,20 +21,16 @@ defmodule FleetPulseWeb.Router do
     get "/driver/me", Api.V1.DriverProfileController, :show
   end
 
-  pipeline :fleet_reader do
-    plug FleetPulseWeb.Plugs.RequireRole, ["seller", "admin"]
+  pipeline :fleet_operator do
+    plug FleetPulseWeb.Plugs.RequireRole, ["admin"]
   end
 
   scope "/api/v1", FleetPulseWeb.Api.V1, as: :api_v1 do
-    pipe_through [:authenticated_api, :fleet_reader]
+    pipe_through [:authenticated_api, :fleet_operator]
 
     get "/drivers", DriverController, :index
     get "/drivers/nearby", DriverController, :nearby
     get "/drivers/:id", DriverController, :show
-  end
-
-  pipeline :fleet_operator do
-    plug FleetPulseWeb.Plugs.RequireRole, ["admin"]
   end
 
   scope "/api/v1/backoffice", FleetPulseWeb.Api.V1, as: :api_v1_backoffice do

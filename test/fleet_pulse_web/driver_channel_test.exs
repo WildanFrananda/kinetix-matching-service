@@ -4,6 +4,7 @@ defmodule FleetPulseWeb.DriverChannelTest do
   import FleetPulse.TrackingFixtures
 
   alias FleetPulse.Dispatch
+  alias FleetPulse.FakeStorage
   alias FleetPulse.IdentityJwks
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.StateCache
@@ -258,11 +259,46 @@ defmodule FleetPulseWeb.DriverChannelTest do
       assert_reply ref, :ok
       assert {:ok, %{status: :picked_up}} = Dispatch.fetch_order(order.id)
 
-      ref = push(channel, "delivered", %{"order_id" => order.id})
+      ref = push(channel, "pod_upload", %{"order_id" => order.id})
+      assert_reply ref, :ok, %{upload_url: upload_url, photo_url: photo_url}
+      assert String.starts_with?(upload_url, photo_url)
+      :ok = FakeStorage.uploaded(photo_url)
+
+      ref =
+        push(
+          channel,
+          "delivered",
+          %{
+            "order_id" => order.id,
+            "pod_photo_url" => photo_url
+          }
+        )
+
       assert_reply ref, :ok
       assert {:ok, %{status: :delivered}} = Dispatch.fetch_order(order.id)
 
       assert {:ok, %{status: :online}} = Tracking.fetch_state(driver.id)
+    end
+
+    test "refuses a delivery with no photo and leaves the parcel picked up", %{channel: channel} do
+      {:ok, order} =
+        Dispatch.create_order(%{
+          pickup_latitude: -6.1754,
+          pickup_longitude: 106.8272,
+          dropoff_latitude: -6.9,
+          dropoff_longitude: 107.6,
+          weight_kg: 50
+        })
+
+      {:ok, _} = Dispatch.assign_order(order.id)
+      assert_push "order_assigned", _payload
+
+      ref = push(channel, "pickup", %{"order_id" => order.id})
+      assert_reply ref, :ok
+
+      ref = push(channel, "delivered", %{"order_id" => order.id})
+      assert_reply ref, :error, %{reason: "invalid_proof"}
+      assert {:ok, %{status: :picked_up}} = Dispatch.fetch_order(order.id)
     end
 
     test "refuses to advance an order the driver does not own", %{channel: channel} do

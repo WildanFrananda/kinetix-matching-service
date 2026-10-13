@@ -17,7 +17,11 @@ defmodule FleetPulse.Application do
   @spec children() :: [child()]
   def children do
     core() ++
-      grpc_children() ++ redispatcher() ++ [FleetPulseWeb.Endpoint] ++ grpc_shutdown_children()
+      grpc_children() ++
+      redispatcher() ++
+      delivery_reporter() ++
+      [FleetPulseWeb.Endpoint] ++
+      grpc_shutdown_children()
   end
 
   @impl true
@@ -110,4 +114,16 @@ defmodule FleetPulse.Application do
   @spec redispatcher_child(boolean()) :: [FleetPulse.Dispatch.ReDispatcher]
   defp redispatcher_child(true), do: [FleetPulse.Dispatch.ReDispatcher]
   defp redispatcher_child(false), do: []
+
+  @spec delivery_reporter() :: [FleetPulse.Dispatch.DeliveryReporter]
+  defp delivery_reporter do
+    :fleet_pulse
+    |> Application.get_env(FleetPulse.Dispatch.DeliveryReporter, [])
+    |> Keyword.get(:enabled, true)
+    |> delivery_reporter_child()
+  end
+
+  @spec delivery_reporter_child(boolean()) :: [FleetPulse.Dispatch.DeliveryReporter]
+  defp delivery_reporter_child(true), do: [FleetPulse.Dispatch.DeliveryReporter]
+  defp delivery_reporter_child(false), do: []
 end

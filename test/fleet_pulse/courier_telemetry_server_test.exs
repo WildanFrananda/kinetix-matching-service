@@ -1,6 +1,7 @@
 defmodule FleetPulse.CourierTelemetryServerTest do
   use FleetPulse.DataCase, async: false
 
+  import FleetPulse.DeliveryProof
   import FleetPulse.TrackingFixtures
 
   alias FleetPulse.CourierTelemetryServer
@@ -112,6 +113,15 @@ defmodule FleetPulse.CourierTelemetryServerTest do
       assert res.assigned_driver_name == ""
       assert res.assigned_driver_phone == ""
       refute Code.ensure_loaded?(FleetPulse.Clients.Identity)
+    end
+
+    test "makes up no arrival time it does not know" do
+      payable_driver()
+
+      res = dispatch(order_number())
+
+      assert res.success
+      assert res.eta_minutes == 0
     end
 
     test "issues a tracking number with the dispatch" do
@@ -239,7 +249,7 @@ defmodule FleetPulse.CourierTelemetryServerTest do
 
       order = Repo.get_by(Order, order_number: number)
       {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
-      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id, %{})
+      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id, proof_for(order.id))
 
       res = dispatch(number)
 

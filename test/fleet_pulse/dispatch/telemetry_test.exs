@@ -1,6 +1,7 @@
 defmodule FleetPulse.Dispatch.TelemetryTest do
   use FleetPulse.DataCase, async: false
 
+  import FleetPulse.DeliveryProof
   import FleetPulse.TrackingFixtures
 
   alias FleetPulse.Dispatch
@@ -78,8 +79,12 @@ defmodule FleetPulse.Dispatch.TelemetryTest do
     {:ok, order} = Dispatch.create_order(order_attrs())
     {:ok, _} = Dispatch.assign_order(order.id)
 
-    assert_receive {:telemetry, [:fleet_pulse, :dispatch, :order_assigned],
-                    %{count: 1, time_to_assign_ms: ms}, _meta}
+    assert_receive {
+      :telemetry,
+      [:fleet_pulse, :dispatch, :order_assigned],
+      %{count: 1, time_to_assign_ms: ms},
+      _meta
+    }
 
     assert is_integer(ms) and ms >= 0
   end
@@ -96,7 +101,7 @@ defmodule FleetPulse.Dispatch.TelemetryTest do
     {:ok, order} = Dispatch.create_order(order_attrs())
     {:ok, _} = Dispatch.assign_order(order.id)
     {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
-    {:ok, _} = Dispatch.mark_delivered(order.id, driver.id)
+    {:ok, _} = Dispatch.mark_delivered(order.id, driver.id, proof_for(order.id))
 
     assert_receive {:telemetry, [:fleet_pulse, :dispatch, :order_delivered], %{count: 1}, _meta}
   end
