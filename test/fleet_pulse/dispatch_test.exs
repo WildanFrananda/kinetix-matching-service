@@ -1,11 +1,13 @@
 defmodule FleetPulse.DispatchTest do
   use FleetPulse.DataCase, async: false
 
+  import FleetPulse.DeliveryProof
   import FleetPulse.TrackingFixtures
 
   alias FleetPulse.Dispatch
   alias FleetPulse.Dispatch.Events
   alias FleetPulse.Dispatch.Order
+  alias FleetPulse.FakeStorage
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.DriverRegistry
   alias FleetPulse.Tracking.StateCache
@@ -131,7 +133,8 @@ defmodule FleetPulse.DispatchTest do
 
       results =
         orders
-        |> Task.async_stream(fn order -> Dispatch.assign_order(order.id) end,
+        |> Task.async_stream(
+          fn order -> Dispatch.assign_order(order.id) end,
           max_concurrency: 2,
           timeout: 5_000
         )
@@ -151,7 +154,8 @@ defmodule FleetPulse.DispatchTest do
 
       results =
         orders
-        |> Task.async_stream(fn order -> Dispatch.assign_order(order.id) end,
+        |> Task.async_stream(
+          fn order -> Dispatch.assign_order(order.id) end,
           max_concurrency: 20,
           timeout: 5_000
         )
@@ -177,14 +181,16 @@ defmodule FleetPulse.DispatchTest do
 
       assert {:ok, %{status: :picked_up}} = Dispatch.mark_picked_up(order.id, driver.id)
 
-      pod_payload = %{
-        "pod_photo_url" => "https://storage.luxe.id/pod/photo_123.jpg",
-        "pod_signature" => "data:image/svg+xml;base64,PHN2Zz4..."
-      }
+      pod_payload =
+        Map.put(
+          proof_for(order.id),
+          "pod_signature",
+          "data:image/svg+xml;base64,PHN2Zz4..."
+        )
 
       assert {:ok, delivered_order} = Dispatch.mark_delivered(order.id, driver.id, pod_payload)
       assert delivered_order.status == :delivered
-      assert delivered_order.pod_photo_url == "https://storage.luxe.id/pod/photo_123.jpg"
+      assert delivered_order.pod_photo_url == pod_payload["pod_photo_url"]
       assert delivered_order.pod_signature == "data:image/svg+xml;base64,PHN2Zz4..."
 
       assert {:ok, %{status: :online}} = Tracking.fetch_state(driver.id)
@@ -209,10 +215,56 @@ defmodule FleetPulse.DispatchTest do
       {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
 
       assert {:error, :invalid_proof} =
-               Dispatch.mark_delivered(order.id, driver.id, %{
-                 "pod_photo_url" => "https://storage.luxe.id/pod/photo_9.jpg",
-                 "pod_signature" => "Budi"
-               })
+               Dispatch.mark_delivered(
+                 order.id,
+                 driver.id,
+                 Map.put(proof_for(order.id), "pod_signature", "Budi")
+               )
+    end
+
+    test "refuses a photo uploaded for another job" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+
+      assert {:error, :invalid_proof} =
+               Dispatch.mark_delivered(order.id, driver.id, proof_for(order.id + 1))
+
+      assert {:ok, %{status: :picked_up}} = Dispatch.fetch_order(order.id)
+    end
+
+    test "refuses a photo that was never uploaded" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+      url = FakeStorage.object_url("pod/#{order.id}/#{Ecto.UUID.generate()}.jpg")
+
+      assert {:error, :invalid_proof} =
+               Dispatch.mark_delivered(order.id, driver.id, %{"pod_photo_url" => url})
+    end
+
+    test "hands the courier carrying the job an upload address for its photo" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+
+      assert {:ok, %{upload_url: upload_url, photo_url: photo_url}} =
+               Dispatch.pod_upload(order.id, driver.id)
+
+      assert {:ok, "pod/" <> rest} = FakeStorage.key_of(photo_url)
+      assert String.starts_with?(rest, "#{order.id}/")
+      assert String.starts_with?(upload_url, photo_url <> "?")
+    end
+
+    test "gives no upload address to another courier, or before the parcel is collected" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+
+      assert {:error, :invalid_transition} = Dispatch.pod_upload(order.id, driver.id)
+
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+
+      assert {:error, :forbidden} = Dispatch.pod_upload(order.id, driver.id + 1_000)
     end
 
     test "refuses a photo reference too long to be one" do
@@ -238,7 +290,8 @@ defmodule FleetPulse.DispatchTest do
       order = assigned_order!()
       {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
 
-      assert {:ok, %{status: :delivered}} = Dispatch.mark_delivered(order.id, driver.id, %{})
+      assert {:ok, %{status: :delivered}} =
+               Dispatch.mark_delivered(order.id, driver.id, proof_for(order.id))
     end
 
     test "refuses a pickup by a driver who does not own the order" do
@@ -282,7 +335,7 @@ defmodule FleetPulse.DispatchTest do
       driver = online_driver(0.5, 100)
       order = assigned_order!()
       {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
-      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id)
+      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id, proof_for(order.id))
 
       assert {:error, :invalid_transition} = Dispatch.cancel_order(order.id)
     end
@@ -309,7 +362,7 @@ defmodule FleetPulse.DispatchTest do
       driver = online_driver(0.5, 100)
       {:ok, order} = Dispatch.assign_order(order!().id)
       {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
-      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id)
+      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id, proof_for(order.id))
 
       assert Dispatch.active_order_for_driver(driver.id) == nil
     end
@@ -326,7 +379,7 @@ defmodule FleetPulse.DispatchTest do
 
       {:ok, delivered} = Dispatch.assign_order(order!().id)
       {:ok, _} = Dispatch.mark_picked_up(delivered.id, driver.id)
-      {:ok, _} = Dispatch.mark_delivered(delivered.id, driver.id)
+      {:ok, _} = Dispatch.mark_delivered(delivered.id, driver.id, proof_for(delivered.id))
 
       {:ok, assigned} = Dispatch.assign_order(order!().id)
 
@@ -354,7 +407,7 @@ defmodule FleetPulse.DispatchTest do
       {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
       assert_receive {:order_changed, %Order{status: :picked_up}}
 
-      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id)
+      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id, proof_for(order.id))
       assert_receive {:order_changed, %Order{status: :delivered}}
     end
   end
@@ -364,7 +417,7 @@ defmodule FleetPulse.DispatchTest do
       driver = online_driver(0.5, 100)
       {:ok, order} = Dispatch.assign_order(order!().id)
       {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
-      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id)
+      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id, proof_for(order.id))
 
       assert Dispatch.count_delivered_today() >= 1
     end
@@ -375,7 +428,7 @@ defmodule FleetPulse.DispatchTest do
       driver = online_driver(0.5, 100)
       {:ok, delivered} = Dispatch.assign_order(order!().id)
       {:ok, _} = Dispatch.mark_picked_up(delivered.id, driver.id)
-      {:ok, _} = Dispatch.mark_delivered(delivered.id, driver.id)
+      {:ok, _} = Dispatch.mark_delivered(delivered.id, driver.id, proof_for(delivered.id))
       {:ok, pending} = Dispatch.create_order(order_attrs())
 
       delivered_ids = Enum.map(Dispatch.list_orders(status: :delivered), & &1.id)
@@ -435,7 +488,10 @@ defmodule FleetPulse.DispatchTest do
       assert length(active_orders) == 3
 
       assert {:ok, _picked} = Dispatch.mark_picked_up(order1.id, driver.id)
-      assert {:ok, _delivered} = Dispatch.mark_delivered(order1.id, driver.id)
+
+      assert {:ok, _delivered} =
+               Dispatch.mark_delivered(order1.id, driver.id, proof_for(order1.id))
+
       assert {:ok, %{status: :online, active_orders_count: 2}} = Tracking.fetch_state(driver.id)
 
       # Now 4th order can be assigned

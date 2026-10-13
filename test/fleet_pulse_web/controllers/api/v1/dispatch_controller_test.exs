@@ -1,9 +1,11 @@
 defmodule FleetPulseWeb.Api.V1.DispatchControllerTest do
   use FleetPulseWeb.ConnCase, async: false
 
+  import FleetPulse.DeliveryProof
   import FleetPulse.TrackingFixtures
 
   alias FleetPulse.Dispatch
+  alias FleetPulse.FakeStorage
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.StateCache
 
@@ -145,22 +147,19 @@ defmodule FleetPulseWeb.Api.V1.DispatchControllerTest do
   end
 
   describe "GET /backoffice/dispatches/:id" do
-    test "shows the proof of delivery, which nothing else ever read", %{conn: conn} do
+    test "shows the proof of delivery through a short-lived read address", %{conn: conn} do
       driver = tracked_driver!()
       order = dispatch!()
       {:ok, order} = Dispatch.assign_order_to_driver(order.id, driver.id)
       {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+      proof = Map.put(proof_for(order.id), "pod_signature", "data:image/svg+xml;base64,PHN2Zz4=")
 
-      {:ok, _} =
-        Dispatch.mark_delivered(order.id, driver.id, %{
-          "pod_photo_url" => "https://storage.kinetix.test/pod/#{order.id}.jpg",
-          "pod_signature" => "data:image/svg+xml;base64,PHN2Zz4="
-        })
+      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id, proof)
 
       body = conn |> get(~p"/api/v1/backoffice/dispatches/#{order.id}") |> json_response(200)
+      {:ok, key} = FakeStorage.key_of(proof["pod_photo_url"])
 
-      assert body["data"]["proof_of_delivery"]["photo_url"] ==
-               "https://storage.kinetix.test/pod/#{order.id}.jpg"
+      assert body["data"]["proof_of_delivery"]["photo_url"] == FakeStorage.read_url(key)
 
       assert body["data"]["proof_of_delivery"]["signature"] ==
                "data:image/svg+xml;base64,PHN2Zz4="
@@ -236,7 +235,7 @@ defmodule FleetPulseWeb.Api.V1.DispatchControllerTest do
       order = dispatch!()
       {:ok, _} = Dispatch.assign_order_to_driver(order.id, driver.id)
       {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
-      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id, %{})
+      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id, proof_for(order.id))
 
       body =
         conn

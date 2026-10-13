@@ -60,3 +60,41 @@ When translating enterprise OOP patterns to this project, adhere to these equiva
 - Type checking: `mix dialyzer`
 - Run test suite: `mix test`
 - Formatting: `mix format`
+
+## 6. Decisions the code states but cannot explain
+
+### A delivery is owed to order until order has recorded it
+
+`Dispatch.mark_delivered` stores `delivered_at` and asks `DeliveryReport.attempt/1` to tell order once. What
+does not go through is retried by `DeliveryReporter` every minute, backing off a minute per attempt up to an
+hour, with the time the parcel was actually delivered — order's `OrderDelivered` is idempotent, so a repeat
+is answered as already recorded. Until 2026-10-13 the report was made once and a failure was a log line:
+order never heard of the delivery, so the courier's fee was never settled, the return window never started
+and the merchant was never paid. Only order's own refusal (`INVALID_ARGUMENT`, `NOT_FOUND`,
+`FAILED_PRECONDITION`, `ALREADY_EXISTS`, `OUT_OF_RANGE`) stops the retrying; `UNAVAILABLE`,
+`DEADLINE_EXCEEDED`, `PERMISSION_DENIED` and the rest mean order could not be asked, and every one of them
+used to be reported as a refusal. The migration that added the columns queued every delivered job with an
+order number, so a delivery order missed before is reported once more.
+
+### A delivery needs a photo matching can see in the bucket
+
+`delivered` is refused without `pod_photo_url`, and the URL must name an object under
+`pod/<this job's id>/` in the private `kinetix-pod` bucket that is really there. The courier asks for an
+upload address over the channel (`pod_upload`, only for a job they carry that is picked up); matching signs
+a short-lived PUT for the public storage host (`MINIO_PUBLIC_URL`) and checks the object through the
+internal endpoint before it accepts the delivery. If the bucket cannot be asked, the answer is
+`proof_unverifiable`, not a refusal: the courier tries again. Before 2026-10-13 the app sent a path on the
+phone, which could never verify, and the server accepted a delivery with no proof at all. The backoffice
+reads a photo through a fifteen-minute presigned GET. The URLs are signed over the Host header only, so the
+gateway's storage route must keep the Host the phone sent (`preserve_host`).
+
+### The fleet's positions are the backoffice's
+
+`/drivers`, `/drivers/nearby` and `/drivers/:id` answer to `admin` only. Every seller could read every
+courier's live position, speed and heading, and an offline courier's last one, and nothing in the estate
+used the routes as a seller.
+
+### No arrival time is made up
+
+`DispatchCourier` leaves `eta_minutes` at zero. It was a constant 10 whatever the distance; nothing read it,
+and an estimate the fleet does not have is not one to send.

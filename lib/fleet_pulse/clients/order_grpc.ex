@@ -80,13 +80,15 @@ defmodule FleetPulse.Clients.OrderGrpc do
         {:error, :refused}
 
       {:error, %GRPC.RPCError{} = rpc_error} ->
+        outcome = outcome_of(rpc_error.status)
+
         Logger.error(
-          "[Order] refused the delivery report for #{order_number}: " <>
+          "[Order] did not record the delivery report for #{order_number} (#{outcome}): " <>
             "#{rpc_error.status} #{rpc_error.message}"
         )
 
         count(to_string(rpc_error.status))
-        {:error, :refused}
+        {:error, outcome}
 
       {:error, reason} ->
         Logger.error("[Order] reporting #{order_number} failed: #{inspect(reason)}")
@@ -94,6 +96,18 @@ defmodule FleetPulse.Clients.OrderGrpc do
         {:error, :unavailable}
     end
   end
+
+  @refusals [
+    GRPC.Status.invalid_argument(),
+    GRPC.Status.not_found(),
+    GRPC.Status.already_exists(),
+    GRPC.Status.failed_precondition(),
+    GRPC.Status.out_of_range()
+  ]
+
+  @spec outcome_of(non_neg_integer()) :: :refused | :unavailable
+  def outcome_of(status) when status in @refusals, do: :refused
+  def outcome_of(_status), do: :unavailable
 
   @spec host() :: String.t() | nil
   defp host do

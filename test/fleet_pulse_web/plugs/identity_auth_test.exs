@@ -25,7 +25,7 @@ defmodule FleetPulseWeb.Plugs.IdentityAuthTest do
   end
 
   setup %{conn: conn} do
-    %{conn: conn |> authenticate(role: "seller") |> put_req_header("accept", "application/json")}
+    %{conn: conn |> authenticate(role: "admin") |> put_req_header("accept", "application/json")}
   end
 
   test "answers 503 when identity could not be reached to check the token", %{conn: conn} do
