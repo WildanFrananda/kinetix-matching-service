@@ -5,12 +5,15 @@ defmodule FleetPulseWeb.Api.V1.DispatchControllerTest do
   import FleetPulse.TrackingFixtures
 
   alias FleetPulse.Dispatch
+  alias FleetPulse.FakeOrder
   alias FleetPulse.FakeStorage
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.StateCache
 
   setup %{conn: conn} do
     Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
+    :ok = FakeOrder.start()
+    :ok = FakeOrder.reset()
 
     %{conn: conn |> authenticate(role: "admin") |> put_req_header("accept", "application/json")}
   end
@@ -152,7 +155,8 @@ defmodule FleetPulseWeb.Api.V1.DispatchControllerTest do
       order = dispatch!()
       {:ok, order} = Dispatch.assign_order_to_driver(order.id, driver.id)
       {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
-      proof = Map.put(proof_for(order.id), "pod_signature", "data:image/svg+xml;base64,PHN2Zz4=")
+      signature = signature_uri(signature_png())
+      proof = Map.put(proof_for(order.id), "pod_signature", signature)
 
       {:ok, _} = Dispatch.mark_delivered(order.id, driver.id, proof)
 
@@ -161,8 +165,7 @@ defmodule FleetPulseWeb.Api.V1.DispatchControllerTest do
 
       assert body["data"]["proof_of_delivery"]["photo_url"] == FakeStorage.read_url(key)
 
-      assert body["data"]["proof_of_delivery"]["signature"] ==
-               "data:image/svg+xml;base64,PHN2Zz4="
+      assert body["data"]["proof_of_delivery"]["signature"] == signature
     end
 
     test "says not found rather than inventing one", %{conn: conn} do

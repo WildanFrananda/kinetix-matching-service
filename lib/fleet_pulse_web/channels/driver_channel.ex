@@ -48,9 +48,11 @@ defmodule FleetPulseWeb.DriverChannel do
   """
   @type error ::
           :forbidden
+          | :invalid_photo_hash
           | :invalid_status
           | :invalid_telemetry
           | :invalid_topic
+          | :invalid_transition
           | :not_found
           | {:start_failed, term()}
           | Driver.changeset()
@@ -104,8 +106,9 @@ defmodule FleetPulseWeb.DriverChannel do
     reply_transition(Dispatch.mark_picked_up(order_id, socket.assigns.driver_id), socket)
   end
 
-  def handle_in("pod_upload", %{"order_id" => order_id}, socket) when is_integer(order_id) do
-    case Dispatch.pod_upload(order_id, socket.assigns.driver_id) do
+  def handle_in("pod_upload", %{"order_id" => order_id} = payload, socket)
+      when is_integer(order_id) do
+    case Dispatch.pod_upload(order_id, socket.assigns.driver_id, payload["photo_sha256"]) do
       {:ok, upload} -> {:reply, {:ok, upload}, socket}
       {:error, reason} -> {:reply, {:error, %{reason: to_reason(reason)}}, socket}
     end

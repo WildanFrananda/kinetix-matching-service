@@ -52,55 +52,118 @@ defmodule FleetPulse.Storage.MinioTest do
     )
   end
 
-  defp key, do: "pod/7/#{Ecto.UUID.generate()}.jpg"
+  defp photo, do: <<0xFF, 0xD8, 0xFF, 0xE0>> <> :crypto.strong_rand_bytes(2_048)
 
-  test "a photo put through the upload address is there, and reads back" do
-    key = key()
-    photo = :crypto.strong_rand_bytes(2_048)
+  defp key_for(bytes) do
+    "pod/7/#{Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)}.jpg"
+  end
 
-    assert {:ok, %Req.Response{status: 200}} =
-             Req.put(
-               Minio.upload_url(key),
-               body: photo,
-               headers: [{"content-type", "image/jpeg"}],
-               retry: false
-             )
+  defp key, do: key_for(photo())
 
-    assert {:ok, true} = Minio.exists?(key)
+  defp put(upload, body, headers) do
+    Req.put(
+      upload.url,
+      body: body,
+      headers: Map.put(headers, "content-type", "image/jpeg"),
+      retry: false
+    )
+  end
+
+  test "a photo put through the upload address is there, under its checksum, and reads back" do
+    photo = photo()
+    key = key_for(photo)
+    digest = :crypto.hash(:sha256, photo)
+    upload = Minio.upload(key, digest)
+
+    assert {:ok, %Req.Response{status: 200}} = put(upload, photo, upload.headers)
+    assert {:ok, {:sha256, ^digest}} = Minio.checksum(key)
 
     assert {:ok, %Req.Response{status: 200, body: ^photo}} =
              Req.get(Minio.read_url(key), retry: false, decode_body: false)
   end
 
+  test "an upload address takes only the bytes whose SHA-256 it was signed for" do
+    photo = photo()
+    key = key_for(photo)
+    upload = Minio.upload(key, :crypto.hash(:sha256, photo))
+
+    assert {:ok, %Req.Response{status: 400, body: body}} = put(upload, photo(), upload.headers)
+    assert body =~ "XAmzContentChecksumMismatch"
+    assert {:ok, :absent} = Minio.checksum(key)
+  end
+
+  test "an upload address writes once: a second put is refused and the first photo stays" do
+    photo = photo()
+    key = key_for(photo)
+    digest = :crypto.hash(:sha256, photo)
+    upload = Minio.upload(key, digest)
+
+    assert {:ok, %Req.Response{status: 200}} = put(upload, photo, upload.headers)
+    assert {:ok, %Req.Response{status: 412}} = put(upload, photo, upload.headers)
+    assert {:ok, {:sha256, ^digest}} = Minio.checksum(key)
+  end
+
+  test "an upload address is refused without either header it was signed with" do
+    photo = photo()
+    key = key_for(photo)
+    upload = Minio.upload(key, :crypto.hash(:sha256, photo))
+
+    for dropped <- Map.keys(upload.headers) do
+      assert {:ok, %Req.Response{status: status, body: body}} =
+               put(upload, photo, Map.delete(upload.headers, dropped))
+
+      assert status in [400, 403]
+      assert body =~ ~r{<Code>(AccessDenied|SignatureDoesNotMatch)</Code>}
+    end
+
+    assert {:ok, :absent} = Minio.checksum(key)
+  end
+
+  test "an object stored without a checksum has none to show", %{config: config} do
+    key = key()
+
+    assert {:ok, %Req.Response{status: 200}} =
+             Req.put(signed("PUT", "/#{@bucket}/#{key}", config), body: photo(), retry: false)
+
+    assert {:ok, :no_checksum} = Minio.checksum(key)
+  end
+
   test "a photo nobody uploaded is absent, not unknown" do
-    assert {:ok, false} = Minio.exists?(key())
+    assert {:ok, :absent} = Minio.checksum(key())
   end
 
   test "an upload address with a forged signature is refused" do
-    forged =
-      Regex.replace(
-        ~r/X-Amz-Signature=[0-9a-f]+/,
-        Minio.upload_url(key()),
-        "X-Amz-Signature=#{String.duplicate("0", 64)}"
-      )
+    photo = photo()
+    upload = Minio.upload(key_for(photo), :crypto.hash(:sha256, photo))
 
-    assert {:ok, %Req.Response{status: 403}} = Req.put(forged, body: "x", retry: false)
+    forged = %{
+      upload
+      | url:
+          Regex.replace(
+            ~r/X-Amz-Signature=[0-9a-f]+/,
+            upload.url,
+            "X-Amz-Signature=#{String.duplicate("0", 64)}"
+          )
+    }
+
+    assert {:ok, %Req.Response{status: 403}} = put(forged, photo, upload.headers)
   end
 
   test "an upload address is refused under any host but the one it was signed for", %{
     config: config
   } do
-    url = Minio.upload_url(key())
+    photo = photo()
+    upload = Minio.upload(key_for(photo), :crypto.hash(:sha256, photo))
     %URI{port: port} = URI.parse(config[:endpoint])
 
     assert {:ok, %Req.Response{status: 403}} =
-             Req.put(url, body: "x", headers: [{"host", "kinetix-minio:#{port}"}], retry: false)
+             put(upload, photo, Map.put(upload.headers, "host", "kinetix-minio:#{port}"))
   end
 
   test "a bucket that cannot be reached is unknown, not absent", %{config: config} do
     Application.put_env(:fleet_pulse, Minio, Keyword.put(config, :endpoint, "http://127.0.0.1:1"))
     on_exit(fn -> Application.put_env(:fleet_pulse, Minio, config) end)
 
-    assert {:error, :unavailable} = Minio.exists?(key())
+    assert {:error, :unavailable} = Minio.checksum(key())
   end
 end

@@ -6,6 +6,7 @@ defmodule FleetPulse.DeliverySettlementTest do
 
   alias FleetPulse.Clients.OrderGrpc
   alias FleetPulse.Dispatch
+  alias FleetPulse.Dispatch.DeliveryEvidence
   alias FleetPulse.Dispatch.DeliveryReporter
   alias FleetPulse.Dispatch.Order
   alias FleetPulse.FakeOrder
@@ -108,8 +109,8 @@ defmodule FleetPulse.DeliverySettlementTest do
     assert FakeOrder.calls() == []
   end
 
-  test "a driver with no identity principal is not reported" do
-    driver = driver_fixture()
+  test "a driver with no identity principal cannot deliver, and nothing is reported" do
+    driver = unlinked_driver_fixture()
 
     on_exit(fn ->
       _ = Tracking.stop_tracking(driver.id)
@@ -133,9 +134,12 @@ defmodule FleetPulse.DeliverySettlementTest do
       Dispatch.dispatch_for_order(number, "merchant-1", @pickup, {-6.2088, 106.8456})
 
     {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
-    {:ok, delivered} = Dispatch.mark_delivered(order.id, driver.id, proof_for(order.id))
 
-    assert delivered.status == :delivered
+    assert {:error, :unlinked} =
+             Dispatch.mark_delivered(order.id, driver.id, proof_for(order.id))
+
+    assert Repo.get(Order, order.id).status == :picked_up
+    assert Repo.all(DeliveryEvidence) == []
     assert FakeOrder.calls() == []
   end
 

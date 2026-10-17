@@ -3,6 +3,7 @@ defmodule FleetPulse.TrackingFixtures do
   Test data builders for the tracking domain.
   """
 
+  alias FleetPulse.Repo
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.Driver
 
@@ -34,8 +35,14 @@ defmodule FleetPulse.TrackingFixtures do
 
   @spec driver_fixture(map()) :: Driver.t()
   def driver_fixture(overrides \\ %{}) do
-    {:ok, driver} = Tracking.create_driver(driver_attrs(overrides))
-    driver
+    active_driver_fixture("principal-#{System.unique_integer([:positive])}", overrides)
+  end
+
+  @spec unlinked_driver_fixture(map()) :: Driver.t()
+  def unlinked_driver_fixture(overrides \\ %{}) do
+    %Driver{}
+    |> Driver.changeset(driver_attrs(overrides))
+    |> Repo.insert!()
   end
 
   @spec registered_driver_fixture(String.t(), map()) :: Driver.t()

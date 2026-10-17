@@ -1,16 +1,18 @@
 defmodule FleetPulse.Storage.SigV4 do
   @moduledoc """
-  AWS Signature Version 4 presigned URLs for S3-compatible storage, signed over the host header only.
+  AWS Signature Version 4 presigned URLs for S3-compatible storage, signed over the host header and
+  any headers the request names, which the caller must then send with exactly those values.
   """
 
   @type credentials :: %{access_key: String.t(), secret_key: String.t(), region: String.t()}
 
   @type request :: %{
-          method: String.t(),
-          base_url: String.t(),
-          path: String.t(),
-          expires_in: pos_integer(),
-          at: DateTime.t()
+          required(:method) => String.t(),
+          required(:base_url) => String.t(),
+          required(:path) => String.t(),
+          required(:expires_in) => pos_integer(),
+          required(:at) => DateTime.t(),
+          optional(:headers) => %{String.t() => String.t()}
         }
 
   @algorithm "AWS4-HMAC-SHA256"
@@ -24,6 +26,9 @@ defmodule FleetPulse.Storage.SigV4 do
     date = Calendar.strftime(request.at, "%Y%m%d")
     scope = "#{date}/#{credentials.region}/#{@service}/aws4_request"
     canonical_path = canonical_path(request.path)
+    signed = signed_headers(request, host)
+    names = signed |> Map.keys() |> Enum.sort()
+    signed_names = Enum.join(names, ";")
 
     query =
       [
@@ -31,7 +36,7 @@ defmodule FleetPulse.Storage.SigV4 do
         {"X-Amz-Credential", "#{credentials.access_key}/#{scope}"},
         {"X-Amz-Date", amz_date},
         {"X-Amz-Expires", Integer.to_string(request.expires_in)},
-        {"X-Amz-SignedHeaders", "host"}
+        {"X-Amz-SignedHeaders", signed_names}
       ]
       |> Enum.sort()
       |> Enum.map_join("&", fn {key, value} -> "#{encode(key)}=#{encode(value)}" end)
@@ -42,8 +47,8 @@ defmodule FleetPulse.Storage.SigV4 do
           request.method,
           canonical_path,
           query,
-          "host:#{host}\n",
-          "host",
+          Enum.map_join(names, "", &"#{&1}:#{Map.fetch!(signed, &1)}\n"),
+          signed_names,
           "UNSIGNED-PAYLOAD"
         ],
         "\n"
@@ -67,6 +72,14 @@ defmodule FleetPulse.Storage.SigV4 do
       |> hex()
 
     "#{uri.scheme}://#{host}#{canonical_path}?#{query}&X-Amz-Signature=#{signature}"
+  end
+
+  @spec signed_headers(request(), String.t()) :: %{String.t() => String.t()}
+  defp signed_headers(request, host) do
+    request
+    |> Map.get(:headers, %{})
+    |> Map.new(fn {name, value} -> {String.downcase(name), String.trim(value)} end)
+    |> Map.put("host", host)
   end
 
   @spec signing_key(credentials(), String.t()) :: binary()

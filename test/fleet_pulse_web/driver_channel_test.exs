@@ -1,6 +1,7 @@
 defmodule FleetPulseWeb.DriverChannelTest do
   use FleetPulseWeb.ChannelCase
 
+  import FleetPulse.DeliveryProof
   import FleetPulse.TrackingFixtures
 
   alias FleetPulse.Dispatch
@@ -259,10 +260,29 @@ defmodule FleetPulseWeb.DriverChannelTest do
       assert_reply ref, :ok
       assert {:ok, %{status: :picked_up}} = Dispatch.fetch_order(order.id)
 
-      ref = push(channel, "pod_upload", %{"order_id" => order.id})
-      assert_reply ref, :ok, %{upload_url: upload_url, photo_url: photo_url}
+      photo = photo_bytes()
+      digest = :crypto.hash(:sha256, photo)
+
+      ref =
+        push(channel, "pod_upload", %{
+          "order_id" => order.id,
+          "photo_sha256" => Base.encode16(digest, case: :lower)
+        })
+
+      assert_reply ref, :ok, %{
+        upload_url: upload_url,
+        upload_headers: headers,
+        photo_url: photo_url
+      }
+
       assert String.starts_with?(upload_url, photo_url)
-      :ok = FakeStorage.uploaded(photo_url)
+
+      assert headers == %{
+               "if-none-match" => "*",
+               "x-amz-checksum-sha256" => Base.encode64(digest)
+             }
+
+      :ok = FakeStorage.uploaded(photo_url, photo)
 
       ref =
         push(
@@ -278,6 +298,31 @@ defmodule FleetPulseWeb.DriverChannelTest do
       assert {:ok, %{status: :delivered}} = Dispatch.fetch_order(order.id)
 
       assert {:ok, %{status: :online}} = Tracking.fetch_state(driver.id)
+    end
+
+    test "hands out no upload address without the photo's SHA-256", %{channel: channel} do
+      {:ok, order} =
+        Dispatch.create_order(%{
+          pickup_latitude: -6.1754,
+          pickup_longitude: 106.8272,
+          dropoff_latitude: -6.9,
+          dropoff_longitude: 107.6,
+          weight_kg: 50
+        })
+
+      {:ok, _} = Dispatch.assign_order(order.id)
+      assert_push "order_assigned", _payload
+
+      ref = push(channel, "pickup", %{"order_id" => order.id})
+      assert_reply ref, :ok
+
+      ref = push(channel, "pod_upload", %{"order_id" => order.id})
+      assert_reply ref, :error, %{reason: "invalid_photo_hash"}
+
+      ref =
+        push(channel, "pod_upload", %{"order_id" => order.id, "photo_sha256" => "not-a-digest"})
+
+      assert_reply ref, :error, %{reason: "invalid_photo_hash"}
     end
 
     test "refuses a delivery with no photo and leaves the parcel picked up", %{channel: channel} do

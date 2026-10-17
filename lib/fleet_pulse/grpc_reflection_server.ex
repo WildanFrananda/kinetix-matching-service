@@ -11,6 +11,8 @@ defmodule FleetPulse.GrpcReflectionServer do
     version: :v1,
     services: [
       FleetPulse.Proto.Fleet.V1.CourierTelemetryService.Service,
-      FleetPulse.Proto.Shipping.V1.ShippingService.Service
+      FleetPulse.Proto.Fleet.V1.FleetRegistryService.Service,
+      FleetPulse.Proto.Shipping.V1.ShippingService.Service,
+      FleetPulse.Proto.Fulfillment.V1.DeliveryEvidenceService.Service
     ]
 end

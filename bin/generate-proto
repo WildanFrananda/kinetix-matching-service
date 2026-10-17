@@ -17,10 +17,11 @@ cd "$HERE"
 # identity knocks on to file a vehicle and to activate an approved driver. order and identity it
 # calls: order to report that a courier completed a delivery, identity to ask who a driver is,
 # because this service stores a vehicle and never a person's name. common carries the shared types.
+# fulfillment/v1/delivery_evidence it serves to the notary: the log of every delivery's evidence.
 #
 # payment left this list on 2026-09-20: settling a delivered order's fee was this service deciding
 # when money moves, which is the order saga's call. (docs/BOUNDARY-DEBT.md S2)
-PACKAGES="common/v1/common fleet/v1/fleet fleet/v1/registry shipping/v1/shipping order/v1/order identity/v1/identity"
+PACKAGES="common/v1/common fleet/v1/fleet fleet/v1/registry shipping/v1/shipping order/v1/order identity/v1/identity fulfillment/v1/delivery_evidence"
 
 INCLUDE="${PROTOC_INCLUDE:-}"
 if [ -z "$INCLUDE" ]; then
