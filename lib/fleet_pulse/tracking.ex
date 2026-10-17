@@ -23,13 +23,6 @@ defmodule FleetPulse.Tracking do
 
   @typep filters :: %{status: Driver.status() | :any, min_capacity_kg: non_neg_integer()}
 
-  @spec create_driver(map()) :: {:ok, Driver.t()} | {:error, Driver.changeset()}
-  def create_driver(attrs) do
-    %Driver{}
-    |> Driver.changeset(attrs)
-    |> Repo.insert()
-  end
-
   @spec fetch_driver(Types.id()) :: {:ok, Driver.t()} | {:error, :not_found}
   def fetch_driver(driver_id) do
     case Repo.get(Driver, driver_id) do

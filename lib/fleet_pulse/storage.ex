@@ -1,14 +1,19 @@
 defmodule FleetPulse.Storage do
   @moduledoc """
   Where proof-of-delivery photos are kept: a private bucket the phone uploads to through a
-  presigned URL, and that matching checks before it accepts a delivery.
+  presigned URL that admits only the bytes the courier hashed, and once, and that matching checks
+  before it accepts a delivery.
   """
 
-  @callback upload_url(key :: String.t()) :: String.t()
+  @type upload :: %{url: String.t(), headers: %{String.t() => String.t()}}
+
+  @type checksum :: {:sha256, <<_::256>>} | :no_checksum | :absent
+
+  @callback upload(key :: String.t(), sha256 :: <<_::256>>) :: upload()
   @callback read_url(key :: String.t()) :: String.t()
   @callback object_url(key :: String.t()) :: String.t()
   @callback key_of(url :: String.t()) :: {:ok, String.t()} | :error
-  @callback exists?(key :: String.t()) :: {:ok, boolean()} | {:error, :unavailable}
+  @callback checksum(key :: String.t()) :: {:ok, checksum()} | {:error, :unavailable}
 
   @spec impl() :: module()
   def impl do
@@ -17,8 +22,8 @@ defmodule FleetPulse.Storage do
     |> Keyword.get(:impl, FleetPulse.Storage.Minio)
   end
 
-  @spec upload_url(String.t()) :: String.t()
-  def upload_url(key), do: impl().upload_url(key)
+  @spec upload(String.t(), <<_::256>>) :: upload()
+  def upload(key, sha256), do: impl().upload(key, sha256)
 
   @spec read_url(String.t()) :: String.t()
   def read_url(key), do: impl().read_url(key)
@@ -29,6 +34,6 @@ defmodule FleetPulse.Storage do
   @spec key_of(String.t()) :: {:ok, String.t()} | :error
   def key_of(url), do: impl().key_of(url)
 
-  @spec exists?(String.t()) :: {:ok, boolean()} | {:error, :unavailable}
-  def exists?(key), do: impl().exists?(key)
+  @spec checksum(String.t()) :: {:ok, checksum()} | {:error, :unavailable}
+  def checksum(key), do: impl().checksum(key)
 end

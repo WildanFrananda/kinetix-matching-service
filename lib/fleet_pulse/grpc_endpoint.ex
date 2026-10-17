@@ -11,6 +11,7 @@ defmodule FleetPulse.GrpcEndpoint do
   run FleetPulse.CourierTelemetryServer
   run FleetPulse.Servers.FleetRegistryServer
   run FleetPulse.Servers.ShippingServer
+  run FleetPulse.Servers.DeliveryEvidenceServer
   run FleetPulse.GrpcReflectionServer
   run FleetPulse.GrpcReflectionServerV1alpha
 end

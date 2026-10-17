@@ -1,7 +1,8 @@
 defmodule FleetPulse.FakeStorage do
   @moduledoc """
-  The proof-of-delivery bucket, as the suite needs it: objects are present when the test says they
-  were uploaded, and the bucket can be made unreachable.
+  The proof-of-delivery bucket, as the suite needs it: an object holds the checksum MinIO would have
+  stored for the bytes put through its upload address, an object can be put there without one, and
+  the bucket can be made unreachable.
   """
 
   @behaviour FleetPulse.Storage
@@ -11,26 +12,31 @@ defmodule FleetPulse.FakeStorage do
 
   @spec start() :: :ok
   def start do
-    case Agent.start_link(fn -> %{objects: MapSet.new(), reachable: true} end, name: @agent) do
+    case Agent.start_link(fn -> empty() end, name: @agent) do
       {:ok, _pid} -> :ok
       {:error, {:already_started, _pid}} -> reset()
     end
   end
 
   @spec reset() :: :ok
-  def reset, do: Agent.update(@agent, fn _ -> %{objects: MapSet.new(), reachable: true} end)
+  def reset, do: Agent.update(@agent, fn _ -> empty() end)
 
-  @spec uploaded(String.t()) :: :ok
-  def uploaded(url) do
-    {:ok, key} = key_of(url)
-    Agent.update(@agent, &%{&1 | objects: MapSet.put(&1.objects, key)})
-  end
+  @spec uploaded(String.t(), binary()) :: :ok
+  def uploaded(url, bytes), do: store(url, {:sha256, :crypto.hash(:sha256, bytes)})
+
+  @spec uploaded_without_checksum(String.t()) :: :ok
+  def uploaded_without_checksum(url), do: store(url, :no_checksum)
 
   @spec unreachable() :: :ok
   def unreachable, do: Agent.update(@agent, &%{&1 | reachable: false})
 
   @impl FleetPulse.Storage
-  def upload_url(key), do: @base <> key <> "?X-Amz-Signature=upload"
+  def upload(key, sha256) do
+    %{
+      url: @base <> key <> "?X-Amz-Signature=upload",
+      headers: %{"if-none-match" => "*", "x-amz-checksum-sha256" => Base.encode64(sha256)}
+    }
+  end
 
   @impl FleetPulse.Storage
   def read_url(key), do: @base <> key <> "?X-Amz-Signature=read"
@@ -43,10 +49,19 @@ defmodule FleetPulse.FakeStorage do
   def key_of(_url), do: :error
 
   @impl FleetPulse.Storage
-  def exists?(key) do
+  def checksum(key) do
     Agent.get(@agent, fn
       %{reachable: false} -> {:error, :unavailable}
-      %{objects: objects} -> {:ok, MapSet.member?(objects, key)}
+      %{objects: objects} -> {:ok, Map.get(objects, key, :absent)}
     end)
   end
+
+  @spec store(String.t(), FleetPulse.Storage.checksum()) :: :ok
+  defp store(url, checksum) do
+    {:ok, key} = key_of(url)
+    Agent.update(@agent, &%{&1 | objects: Map.put(&1.objects, key, checksum)})
+  end
+
+  @spec empty() :: %{objects: %{}, reachable: true}
+  defp empty, do: %{objects: %{}, reachable: true}
 end

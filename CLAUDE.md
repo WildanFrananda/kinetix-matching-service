@@ -76,17 +76,55 @@ and the merchant was never paid. Only order's own refusal (`INVALID_ARGUMENT`, `
 used to be reported as a refusal. The migration that added the columns queued every delivered job with an
 order number, so a delivery order missed before is reported once more.
 
-### A delivery needs a photo matching can see in the bucket
+### A delivery needs a photo matching can see in the bucket, stored as the courier hashed it
 
-`delivered` is refused without `pod_photo_url`, and the URL must name an object under
-`pod/<this job's id>/` in the private `kinetix-pod` bucket that is really there. The courier asks for an
-upload address over the channel (`pod_upload`, only for a job they carry that is picked up); matching signs
-a short-lived PUT for the public storage host (`MINIO_PUBLIC_URL`) and checks the object through the
-internal endpoint before it accepts the delivery. If the bucket cannot be asked, the answer is
-`proof_unverifiable`, not a refusal: the courier tries again. Before 2026-10-13 the app sent a path on the
-phone, which could never verify, and the server accepted a delivery with no proof at all. The backoffice
-reads a photo through a fifteen-minute presigned GET. The URLs are signed over the Host header only, so the
-gateway's storage route must keep the Host the phone sent (`preserve_host`).
+`delivered` is refused without `pod_photo_url`, and the URL must name `pod/<this job's id>/<sha256>.jpg` in
+the private `kinetix-pod` bucket, an object that is really there and whose stored checksum is the SHA-256 in its
+name. The courier asks for an upload address over the channel (`pod_upload` with `photo_sha256`, lowercase hex,
+only for a job they carry that is picked up); matching refuses one without the hash (`invalid_photo_hash`), and
+signs a short-lived PUT for the public storage host (`MINIO_PUBLIC_URL`) over `x-amz-checksum-sha256` and
+`if-none-match: *`. The reply carries those headers as `upload_headers`, and the app sends exactly them: MinIO
+then stores only the bytes the courier hashed, refuses a second write to the key (`412`), and refuses a request
+that leaves either header out. At `delivered` matching asks the object's checksum through the internal endpoint
+(`HEAD` with `x-amz-checksum-mode: ENABLED`); an object that is absent, carries no checksum or carries another is
+`invalid_proof`. If the bucket cannot be asked, the answer is `proof_unverifiable`, not a refusal: the courier
+tries again. MinIO also accepts and enforces those headers when they are not signed (measured 2026-10-16), so
+only the signature stops a client from dropping them; `MinioTest` fails if the upload address stops signing
+them. The signature must be a PNG in a `data:image/png;base64,` URI, which is what the app draws; a URL is no
+longer accepted, because matching cannot hash what a URL points to.
+
+Before 2026-10-13 the app sent a path on the phone, which could never verify, and the server accepted a delivery
+with no proof at all; until 2026-10-16 the upload address could be replayed for its ten minutes with any bytes.
+A photo uploaded under the old `<uuid>.jpg` name carries no hash, so a courier holding one when this ships takes
+the photo again. The backoffice reads a photo through a fifteen-minute presigned GET. The URLs are signed over
+the Host header, so the gateway's storage route must keep the Host the phone sent (`preserve_host`).
+
+### Every delivery is in the evidence log
+
+`delivery_evidence` holds one row per delivered job — the photo's SHA-256, the signature's (the decoded PNG's,
+or none), the courier's principal and `delivered_at` — inserted in the transaction that marks the job delivered,
+before the update. Postgres enforces it: a trigger refuses any change of a job to `delivered` (and any job
+inserted as delivered) whose evidence row was not written earlier in the same transaction, so a new code path
+that forgets the log fails at its first statement; triggers on the log refuse `UPDATE`, `DELETE` and `TRUNCATE`;
+one row per job. A courier without an identity principal cannot deliver (`unlinked`): the log must name who
+did. Deliveries made before the log existed are not in it, by decision: their photos were never hashed when they
+were taken, and a hash computed now would prove only what the bucket holds now.
+
+The log is the notary's evidence of delivery (notary PLAN decision 38), read through
+`fulfillment.v1.DeliveryEvidenceService/DeliveriesSince`. Its cursor is `(transaction_id xid8, sequence)` and it
+serves only rows below `pg_snapshot_xmin(pg_current_snapshot())`, so a row whose transaction commits after a later
+one's can never be skipped; a transaction left open anywhere in the cluster holds the feed back, it never makes
+it skip. The feed tests run in a scratch database of their own (`FleetPulse.ScratchDatabase`), because the
+sandbox never commits and the log can never be emptied.
+
+### Each caller reaches only the RPCs it makes
+
+`GRPC_ALLOWED_CALLERS` takes `peer` (every method), `peer@package.Service` or `peer@package.Service/Method`. A listed
+peer may also use server reflection, which describes the published contract and nothing else — the mesh probes
+(`trace_test.sh`, `verify_p1.sh`, `handshake_matrix.sh`) resolve methods through it, as order's do. The notary needs
+`notary@fulfillment.v1.DeliveryEvidenceService/DeliveriesSince`. Server reflection lists every service the endpoint
+runs; until 2026-10-16 it left out `FleetRegistryService`. v1.0.0 parses neither a method entry nor the reflection
+rule, so infrastructure keeps matching's list to service entries until this release is live.
 
 ### The fleet's positions are the backoffice's
 

@@ -181,17 +181,13 @@ defmodule FleetPulse.DispatchTest do
 
       assert {:ok, %{status: :picked_up}} = Dispatch.mark_picked_up(order.id, driver.id)
 
-      pod_payload =
-        Map.put(
-          proof_for(order.id),
-          "pod_signature",
-          "data:image/svg+xml;base64,PHN2Zz4..."
-        )
+      signature = signature_uri(signature_png())
+      pod_payload = Map.put(proof_for(order.id), "pod_signature", signature)
 
       assert {:ok, delivered_order} = Dispatch.mark_delivered(order.id, driver.id, pod_payload)
       assert delivered_order.status == :delivered
       assert delivered_order.pod_photo_url == pod_payload["pod_photo_url"]
-      assert delivered_order.pod_signature == "data:image/svg+xml;base64,PHN2Zz4..."
+      assert delivered_order.pod_signature == signature
 
       assert {:ok, %{status: :online}} = Tracking.fetch_state(driver.id)
     end
@@ -209,17 +205,28 @@ defmodule FleetPulse.DispatchTest do
       assert {:ok, %{status: :picked_up, pod_photo_url: nil}} = Dispatch.fetch_order(order.id)
     end
 
-    test "refuses a signature that is neither a data URI nor a URL" do
+    test "refuses a signature that is not a PNG carried in a data URI" do
       driver = online_driver(0.5, 100)
       order = assigned_order!()
       {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+      proof = proof_for(order.id)
 
-      assert {:error, :invalid_proof} =
-               Dispatch.mark_delivered(
-                 order.id,
-                 driver.id,
-                 Map.put(proof_for(order.id), "pod_signature", "Budi")
-               )
+      for signature <- [
+            "Budi",
+            "https://storage.kinetix.test/signatures/budi.png",
+            "data:image/svg+xml;base64,PHN2Zz4=",
+            "data:image/png;base64,not base64 at all",
+            "data:image/png;base64," <> Base.encode64("a GIF, not a PNG")
+          ] do
+        assert {:error, :invalid_proof} =
+                 Dispatch.mark_delivered(
+                   order.id,
+                   driver.id,
+                   Map.put(proof, "pod_signature", signature)
+                 )
+      end
+
+      assert {:ok, %{status: :picked_up}} = Dispatch.fetch_order(order.id)
     end
 
     test "refuses a photo uploaded for another job" do
@@ -237,34 +244,88 @@ defmodule FleetPulse.DispatchTest do
       driver = online_driver(0.5, 100)
       order = assigned_order!()
       {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
-      url = FakeStorage.object_url("pod/#{order.id}/#{Ecto.UUID.generate()}.jpg")
+      url = photo_url_for(order.id, photo_bytes())
 
       assert {:error, :invalid_proof} =
                Dispatch.mark_delivered(order.id, driver.id, %{"pod_photo_url" => url})
     end
 
-    test "hands the courier carrying the job an upload address for its photo" do
+    test "refuses a photo whose stored bytes are not the ones its name says" do
       driver = online_driver(0.5, 100)
       order = assigned_order!()
       {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+      url = photo_url_for(order.id, photo_bytes())
+      :ok = FakeStorage.uploaded(url, photo_bytes())
 
-      assert {:ok, %{upload_url: upload_url, photo_url: photo_url}} =
-               Dispatch.pod_upload(order.id, driver.id)
+      assert {:error, :invalid_proof} =
+               Dispatch.mark_delivered(order.id, driver.id, %{"pod_photo_url" => url})
 
-      assert {:ok, "pod/" <> rest} = FakeStorage.key_of(photo_url)
-      assert String.starts_with?(rest, "#{order.id}/")
+      assert {:ok, %{status: :picked_up}} = Dispatch.fetch_order(order.id)
+    end
+
+    test "refuses a photo stored without the checksum its upload address required" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+      url = photo_url_for(order.id, photo_bytes())
+      :ok = FakeStorage.uploaded_without_checksum(url)
+
+      assert {:error, :invalid_proof} =
+               Dispatch.mark_delivered(order.id, driver.id, %{"pod_photo_url" => url})
+    end
+
+    test "refuses a photo under a name that is not a SHA-256" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+      url = FakeStorage.object_url("pod/#{order.id}/#{Ecto.UUID.generate()}.jpg")
+      :ok = FakeStorage.uploaded(url, photo_bytes())
+
+      assert {:error, :invalid_proof} =
+               Dispatch.mark_delivered(order.id, driver.id, %{"pod_photo_url" => url})
+    end
+
+    test "hands the courier carrying the job an upload address bound to the photo's SHA-256" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+      digest = :crypto.hash(:sha256, photo_bytes())
+      hex = Base.encode16(digest, case: :lower)
+
+      assert {:ok, %{upload_url: upload_url, upload_headers: headers, photo_url: photo_url}} =
+               Dispatch.pod_upload(order.id, driver.id, hex)
+
+      assert {:ok, key} = FakeStorage.key_of(photo_url)
+      assert key == "pod/#{order.id}/#{hex}.jpg"
       assert String.starts_with?(upload_url, photo_url <> "?")
+
+      assert headers == %{
+               "if-none-match" => "*",
+               "x-amz-checksum-sha256" => Base.encode64(digest)
+             }
+    end
+
+    test "hands out no upload address for a hash that is not a SHA-256" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+      hex = Base.encode16(:crypto.hash(:sha256, photo_bytes()), case: :lower)
+
+      for hash <- [nil, "", String.upcase(hex), String.slice(hex, 0, 63), hex <> "0", 42] do
+        assert {:error, :invalid_photo_hash} = Dispatch.pod_upload(order.id, driver.id, hash)
+      end
     end
 
     test "gives no upload address to another courier, or before the parcel is collected" do
       driver = online_driver(0.5, 100)
       order = assigned_order!()
+      hex = Base.encode16(:crypto.hash(:sha256, photo_bytes()), case: :lower)
 
-      assert {:error, :invalid_transition} = Dispatch.pod_upload(order.id, driver.id)
+      assert {:error, :invalid_transition} = Dispatch.pod_upload(order.id, driver.id, hex)
 
       {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
 
-      assert {:error, :forbidden} = Dispatch.pod_upload(order.id, driver.id + 1_000)
+      assert {:error, :forbidden} = Dispatch.pod_upload(order.id, driver.id + 1_000, hex)
     end
 
     test "refuses a photo reference too long to be one" do

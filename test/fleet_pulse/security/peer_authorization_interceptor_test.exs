@@ -79,6 +79,64 @@ defmodule FleetPulse.Security.PeerAuthorizationInterceptorTest do
     end
   end
 
+  describe "an entry scoped to one method" do
+    @feed "fulfillment.v1.DeliveryEvidenceService"
+
+    test "may call that method and no other" do
+      allowed = parse("notary@#{@feed}/DeliveriesSince")
+
+      assert Guard.permitted?(allowed, "notary", "#{@feed}/DeliveriesSince")
+      refute Guard.permitted?(allowed, "notary", "#{@feed}/Another")
+      refute Guard.permitted?(allowed, "notary", @feed)
+      refute Guard.permitted?(allowed, "notary", "#{@registry}/DeliveriesSince")
+    end
+
+    test "a service entry still covers every method of the service" do
+      allowed = parse("identity@#{@registry}")
+
+      assert Guard.permitted?(allowed, "identity", "#{@registry}/RegisterDriver")
+      assert Guard.permitted?(allowed, "identity", "#{@registry}/ActivateDriver")
+      refute Guard.permitted?(allowed, "identity", "#{@shipping}/EstimateShippingOptions")
+    end
+
+    test "accumulates with the caller's other entries" do
+      allowed = parse("notary@#{@feed}/DeliveriesSince,notary@#{@shipping}")
+
+      assert Guard.permitted?(allowed, "notary", "#{@feed}/DeliveriesSince")
+      assert Guard.permitted?(allowed, "notary", "#{@shipping}/EstimateShippingOptions")
+      refute Guard.permitted?(allowed, "notary", "#{@registry}/RegisterDriver")
+    end
+
+    test "does not leak to a different caller" do
+      allowed = parse("notary@#{@feed}/DeliveriesSince")
+
+      refute Guard.permitted?(allowed, "order", "#{@feed}/DeliveriesSince")
+    end
+  end
+
+  describe "server reflection" do
+    test "is open to a listed peer, whatever its scope" do
+      allowed = parse("notary@fulfillment.v1.DeliveryEvidenceService/DeliveriesSince")
+
+      for service <- [
+            "grpc.reflection.v1.ServerReflection",
+            "grpc.reflection.v1alpha.ServerReflection"
+          ] do
+        assert Guard.permitted?(allowed, "notary", "#{service}/ServerReflectionInfo")
+      end
+    end
+
+    test "is closed to a peer the list does not name" do
+      allowed = parse("notary@fulfillment.v1.DeliveryEvidenceService")
+
+      refute Guard.permitted?(
+               allowed,
+               "search",
+               "grpc.reflection.v1.ServerReflection/ServerReflectionInfo"
+             )
+    end
+  end
+
   describe "a caller listed both ways" do
     test "a bare entry wins, whichever order it appears in" do
       before = parse("identity,identity@#{@registry}")

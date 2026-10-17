@@ -5,9 +5,11 @@ defmodule FleetPulse.Dispatch do
 
   import Ecto.Query
 
+  alias FleetPulse.Dispatch.DeliveryEvidence
   alias FleetPulse.Dispatch.DeliveryReport
   alias FleetPulse.Dispatch.Events
   alias FleetPulse.Dispatch.Order
+  alias FleetPulse.Dispatch.Proof
   alias FleetPulse.Repo
   alias FleetPulse.Storage
   alias FleetPulse.Tracking
@@ -20,10 +22,13 @@ defmodule FleetPulse.Dispatch do
           | :invalid_transition
           | :invalid_proof
           | :proof_unverifiable
+          | :unlinked
 
-  @type pod_upload :: %{upload_url: String.t(), photo_url: String.t()}
-
-  @pod_key ~r|\Apod/(\d+)/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg\z|
+  @type pod_upload :: %{
+          upload_url: String.t(),
+          upload_headers: %{String.t() => String.t()},
+          photo_url: String.t()
+        }
 
   @legal_transitions %{
     pending: [:cancelled],
@@ -205,15 +210,24 @@ defmodule FleetPulse.Dispatch do
     result
   end
 
-  @spec pod_upload(Types.id(), Types.id()) ::
-          {:ok, pod_upload()} | {:error, :not_found | :forbidden | :invalid_transition}
-  def pod_upload(order_id, driver_id) do
-    with {:ok, order} <- fetch_order(order_id),
+  @spec pod_upload(Types.id(), Types.id(), term()) ::
+          {:ok, pod_upload()}
+          | {:error, :not_found | :forbidden | :invalid_transition | :invalid_photo_hash}
+  def pod_upload(order_id, driver_id, photo_sha256) do
+    with {:ok, digest} <- Proof.parse_sha256(photo_sha256),
+         {:ok, order} <- fetch_order(order_id),
          :ok <- ensure_owner(order, driver_id),
          :ok <- ensure_picked_up(order) do
-      key = "pod/#{order.id}/#{Ecto.UUID.generate()}.jpg"
+      key = Proof.photo_key(order.id, digest)
+      upload = Storage.upload(key, digest)
 
-      {:ok, %{upload_url: Storage.upload_url(key), photo_url: Storage.object_url(key)}}
+      address = %{
+        upload_url: upload.url,
+        upload_headers: upload.headers,
+        photo_url: Storage.object_url(key)
+      }
+
+      {:ok, address}
     end
   end
 
@@ -259,24 +273,37 @@ defmodule FleetPulse.Dispatch do
   defp ensure_picked_up(%Order{status: :picked_up}), do: :ok
   defp ensure_picked_up(%Order{}), do: {:error, :invalid_transition}
 
-  @spec verify_photo(Order.t(), map()) :: :ok | {:error, :invalid_proof | :proof_unverifiable}
+  @spec verify_photo(Order.t(), map()) ::
+          {:ok, Proof.digest()} | {:error, :invalid_proof | :proof_unverifiable}
   defp verify_photo(order, %{"pod_photo_url" => url}) when is_binary(url) do
     with {:ok, key} <- Storage.key_of(url),
-         [_key, id] <- Regex.run(@pod_key, key),
-         true <- id == Integer.to_string(order.id) do
-      photo_present(Storage.exists?(key))
+         {:ok, named} <- Proof.photo_named(key, order.id) do
+      stored_as_named(Storage.checksum(key), named)
     else
-      _not_this_jobs_photo -> {:error, :invalid_proof}
+      :error -> {:error, :invalid_proof}
     end
   end
 
   defp verify_photo(_order, _attrs), do: {:error, :invalid_proof}
 
-  @spec photo_present({:ok, boolean()} | {:error, :unavailable}) ::
-          :ok | {:error, :invalid_proof | :proof_unverifiable}
-  defp photo_present({:ok, true}), do: :ok
-  defp photo_present({:ok, false}), do: {:error, :invalid_proof}
-  defp photo_present({:error, :unavailable}), do: {:error, :proof_unverifiable}
+  @spec stored_as_named(
+          {:ok, Storage.checksum()} | {:error, :unavailable},
+          Proof.digest()
+        ) :: {:ok, Proof.digest()} | {:error, :invalid_proof | :proof_unverifiable}
+  defp stored_as_named({:ok, {:sha256, named}}, named), do: {:ok, named}
+  defp stored_as_named({:ok, _absent_or_other_bytes}, _named), do: {:error, :invalid_proof}
+  defp stored_as_named({:error, :unavailable}, _named), do: {:error, :proof_unverifiable}
+
+  @spec delivering_principal(Order.t()) :: {:ok, String.t()} | {:error, :unlinked}
+  defp delivering_principal(%Order{driver_id: driver_id}) do
+    case Tracking.fetch_driver(driver_id) do
+      {:ok, %{principal_id: principal}} when is_binary(principal) and principal != "" ->
+        {:ok, principal}
+
+      _unnamed ->
+        {:error, :unlinked}
+    end
+  end
 
   @spec ensure_pending(Order.t()) :: :ok | {:error, :already_assigned}
   defp ensure_pending(%Order{status: :pending}), do: :ok
@@ -363,7 +390,7 @@ defmodule FleetPulse.Dispatch do
   defp ensure_owner(%Order{}, _driver_id), do: {:error, :forbidden}
 
   @spec transition(Order.t(), Order.status(), map()) ::
-          {:ok, Order.t()} | {:error, :invalid_transition | :invalid_proof | :proof_unverifiable}
+          {:ok, Order.t()} | {:error, transition_error()}
   defp transition(%Order{status: current} = order, target, pod_attrs \\ %{}) do
     apply_transition(legal?(current, target), order, target, pod_attrs)
   end
@@ -374,15 +401,17 @@ defmodule FleetPulse.Dispatch do
   end
 
   @spec apply_transition(boolean(), Order.t(), Order.status(), map()) ::
-          {:ok, Order.t()} | {:error, :invalid_transition | :invalid_proof | :proof_unverifiable}
+          {:ok, Order.t()} | {:error, transition_error()}
   defp apply_transition(false, _order, _target, _pod_attrs), do: {:error, :invalid_transition}
 
   defp apply_transition(true, order, :delivered, pod_attrs) do
-    with :ok <- verify_photo(order, pod_attrs) do
-      order
-      |> Order.delivery_changeset(pod_attrs, DateTime.utc_now())
-      |> Ecto.Changeset.put_change(:status, :delivered)
-      |> Repo.update()
+    with {:ok, photo} <- verify_photo(order, pod_attrs),
+         {:ok, signature} <- Proof.signature_sha256(pod_attrs),
+         {:ok, principal} <- delivering_principal(order) do
+      delivered_at = DateTime.utc_now()
+      evidence = DeliveryEvidence.changeset(order, principal, photo, signature, delivered_at)
+
+      Repo.transact(fn -> record_delivery(order, pod_attrs, evidence, delivered_at) end)
       |> after_transition()
     end
   end
@@ -395,7 +424,18 @@ defmodule FleetPulse.Dispatch do
     |> after_transition()
   end
 
-  @spec after_transition({:ok, Order.t()} | {:error, Order.changeset()}) ::
+  @spec record_delivery(Order.t(), map(), DeliveryEvidence.changeset(), DateTime.t()) ::
+          {:ok, Order.t()} | {:error, Ecto.Changeset.t()}
+  defp record_delivery(order, pod_attrs, evidence, delivered_at) do
+    with {:ok, _evidence} <- Repo.insert(evidence) do
+      order
+      |> Order.delivery_changeset(pod_attrs, delivered_at)
+      |> Ecto.Changeset.put_change(:status, :delivered)
+      |> Repo.update()
+    end
+  end
+
+  @spec after_transition({:ok, Order.t()} | {:error, Ecto.Changeset.t()}) ::
           {:ok, Order.t()} | {:error, :invalid_transition | :invalid_proof}
   defp after_transition({:ok, order}) do
     :ok = release_if_terminal(order)

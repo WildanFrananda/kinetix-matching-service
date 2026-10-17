@@ -7,6 +7,7 @@ defmodule FleetPulse.Dispatch.Order do
 
   import Ecto.Changeset
 
+  alias FleetPulse.Dispatch.Proof
   alias FleetPulse.Tracking.Driver
   alias FleetPulse.Types
 
@@ -145,21 +146,10 @@ defmodule FleetPulse.Dispatch.Order do
 
   @spec validate_signature_reference(atom(), String.t()) :: [{atom(), String.t()}]
   defp validate_signature_reference(field, value) do
-    case URI.new(value) do
-      {:ok, %URI{scheme: "data"}} ->
-        []
-
-      {:ok, %URI{scheme: scheme, host: host}}
-      when scheme in ["http", "https"] and is_binary(host) and host != "" ->
-        []
-
-      _neither ->
-        [
-          {
-            field,
-            "must be a data: URI carrying the signature, or a URL naming where it is stored"
-          }
-        ]
+    if Proof.signature_reference?(value) do
+      []
+    else
+      [{field, "must be a data: URI carrying the signature as a base64 PNG"}]
     end
   end
 

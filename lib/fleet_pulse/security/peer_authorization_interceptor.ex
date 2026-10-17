@@ -1,6 +1,10 @@
 defmodule FleetPulse.Security.PeerAuthorizationInterceptor do
   @moduledoc """
   Refuses any gRPC call whose peer is not a service on this server's allow list.
+
+  `GRPC_ALLOWED_CALLERS` takes `peer` (every method), `peer@package.Service` (every method of that
+  service) or `peer@package.Service/Method` (that method only). A listed peer may also use server
+  reflection, which describes the published contract and nothing else.
   """
 
   @behaviour GRPC.Server.Interceptor
@@ -85,14 +89,14 @@ defmodule FleetPulse.Security.PeerAuthorizationInterceptor do
 
   @spec authorize(String.t(), struct() | nil, GRPC.Server.Stream.t(), fun()) :: any()
   defp authorize(peer, req, stream, next) do
-    called = called_service(stream)
+    called = called_method(stream)
 
     if permitted?(allowed_callers(), peer, called) do
       next.(req, stream)
     else
       Logger.warning(
-        "refused a gRPC call to #{method(stream)} from #{peer}, which may not reach #{called} " <>
-          "on this server"
+        "refused a gRPC call to #{method(stream)} from #{peer}, which this server's allow list " <>
+          "does not grant it"
       )
 
       raise GRPC.RPCError,
@@ -101,18 +105,42 @@ defmodule FleetPulse.Security.PeerAuthorizationInterceptor do
     end
   end
 
+  @reflection ["grpc.reflection.v1.ServerReflection", "grpc.reflection.v1alpha.ServerReflection"]
+
   @spec permitted?(allow_list(), String.t(), String.t()) :: boolean()
   def permitted?(allowed, peer, called) do
     case Map.get(allowed, peer) do
       nil -> false
       :any -> true
-      services -> MapSet.member?(services, called)
+      scopes -> reflection?(called) or Enum.any?(scopes_of(called), &MapSet.member?(scopes, &1))
     end
   end
 
-  @spec called_service(GRPC.Server.Stream.t()) :: String.t()
-  defp called_service(%GRPC.Server.Stream{service_name: name}) when is_binary(name), do: name
-  defp called_service(_stream), do: ""
+  @spec reflection?(String.t()) :: boolean()
+  defp reflection?(called) do
+    [service | _method] = String.split(called, "/", parts: 2)
+    service in @reflection
+  end
+
+  @spec scopes_of(String.t()) :: [String.t()]
+  defp scopes_of(called) do
+    case String.split(called, "/", parts: 2) do
+      [service, _method] -> [service, called]
+      [service] -> [service]
+    end
+  end
+
+  @spec called_method(GRPC.Server.Stream.t()) :: String.t()
+  defp called_method(%GRPC.Server.Stream{service_name: service, method_name: method})
+       when is_binary(service) and is_binary(method) do
+    "#{service}/#{method}"
+  end
+
+  defp called_method(%GRPC.Server.Stream{service_name: service}) when is_binary(service) do
+    service
+  end
+
+  defp called_method(_stream), do: ""
 
   @spec refuse_anonymous(GRPC.Server.Stream.t()) :: no_return()
   defp refuse_anonymous(stream) do

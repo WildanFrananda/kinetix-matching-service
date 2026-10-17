@@ -233,7 +233,7 @@ defmodule FleetPulse.CourierTelemetryServerTest do
     end
 
     test "refuses an assignment to a driver who cannot be paid" do
-      track!(driver_fixture())
+      track!(unlinked_driver_fixture())
 
       res = dispatch(order_number())
 
