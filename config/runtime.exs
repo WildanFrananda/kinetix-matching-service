@@ -70,13 +70,13 @@ if config_env() == :prod do
       You can generate one by calling: mix phx.gen.secret
       """
 
-  config :fleet_pulse, FleetPulse.Storage.Minio,
-    endpoint: System.fetch_env!("MINIO_ENDPOINT"),
-    public_url: System.fetch_env!("MINIO_PUBLIC_URL"),
-    bucket: System.fetch_env!("MINIO_POD_BUCKET"),
-    region: System.fetch_env!("MINIO_REGION"),
-    access_key: System.fetch_env!("MINIO_ACCESS_KEY"),
-    secret_key: System.fetch_env!("MINIO_SECRET_KEY")
+  config :fleet_pulse, FleetPulse.Storage.S3,
+    endpoint: System.fetch_env!("OBJECT_STORE_ENDPOINT"),
+    public_url: System.fetch_env!("OBJECT_STORE_PUBLIC_URL"),
+    bucket: System.fetch_env!("OBJECT_STORE_POD_BUCKET"),
+    region: System.fetch_env!("OBJECT_STORE_REGION"),
+    access_key: System.fetch_env!("OBJECT_STORE_ACCESS_KEY"),
+    secret_key: System.fetch_env!("OBJECT_STORE_SECRET_KEY")
 
   host = System.get_env("PHX_HOST") || "example.com"
 

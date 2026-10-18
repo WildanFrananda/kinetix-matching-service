@@ -53,7 +53,8 @@ defmodule FleetPulse.DeliverySettlementTest do
         order_number,
         "merchant-1",
         @pickup,
-        {-6.2088, 106.8456}
+        {-6.2088, 106.8456},
+        1_200
       )
 
     {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
@@ -131,7 +132,7 @@ defmodule FleetPulse.DeliverySettlementTest do
     number = "ORD-#{System.unique_integer([:positive])}"
 
     {:ok, order} =
-      Dispatch.dispatch_for_order(number, "merchant-1", @pickup, {-6.2088, 106.8456})
+      Dispatch.dispatch_for_order(number, "merchant-1", @pickup, {-6.2088, 106.8456}, 1_200)
 
     {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
 
@@ -150,7 +151,7 @@ defmodule FleetPulse.DeliverySettlementTest do
     number = "ORD-#{System.unique_integer([:positive])}"
 
     {:ok, order} =
-      Dispatch.dispatch_for_order(number, "merchant-1", @pickup, {-6.2088, 106.8456})
+      Dispatch.dispatch_for_order(number, "merchant-1", @pickup, {-6.2088, 106.8456}, 1_200)
 
     assigned = order.driver_id
     refute assigned == nil
@@ -232,7 +233,7 @@ defmodule FleetPulse.DeliverySettlementTest do
     number = "ORD-#{System.unique_integer([:positive])}"
 
     {:ok, order} =
-      Dispatch.dispatch_for_order(number, "merchant-1", @pickup, {-6.2088, 106.8456})
+      Dispatch.dispatch_for_order(number, "merchant-1", @pickup, {-6.2088, 106.8456}, 1_200)
 
     {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
 
@@ -256,7 +257,7 @@ defmodule FleetPulse.DeliverySettlementTest do
     number = "ORD-#{System.unique_integer([:positive])}"
 
     {:ok, order} =
-      Dispatch.dispatch_for_order(number, "merchant-1", @pickup, {-6.2088, 106.8456})
+      Dispatch.dispatch_for_order(number, "merchant-1", @pickup, {-6.2088, 106.8456}, 1_200)
 
     {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
     proof = proof_for(order.id)

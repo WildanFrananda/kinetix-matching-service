@@ -257,4 +257,37 @@ defmodule FleetPulse.CourierTelemetryServerTest do
       assert res.error.error_code == "ORDER_ALREADY_FINISHED"
     end
   end
+
+  describe "the parcel's weight" do
+    defp dispatch_weighing(number, grams) do
+      CourierTelemetryServer.dispatch_courier(
+        %DispatchCourierRequest{
+          merchant_principal_id: @merchant,
+          order_number: number,
+          pickup_point: %GeoPoint{latitude: elem(@pickup, 0), longitude: elem(@pickup, 1)},
+          delivery_point: %GeoPoint{latitude: -6.2088, longitude: 106.8456},
+          parcel_weight_grams: grams
+        },
+        nil
+      )
+    end
+
+    test "is booked in whole kilograms, rounded up" do
+      payable_driver()
+      number = order_number()
+
+      assert dispatch_weighing(number, 4_100).success == true
+      assert Repo.get_by(Order, order_number: number).weight_kg == 5
+    end
+
+    test "is refused when negative, and nothing is booked" do
+      number = order_number()
+
+      res = dispatch_weighing(number, -500)
+
+      assert res.success == false
+      assert res.error.error_code == "INVALID_PARCEL_WEIGHT"
+      assert Repo.get_by(Order, order_number: number) == nil
+    end
+  end
 end

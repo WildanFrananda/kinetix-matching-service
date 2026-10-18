@@ -44,19 +44,34 @@ defmodule FleetPulse.Dispatch do
           assign_error()
           | :blank_order_number
           | {:no_point, :pickup | :delivery}
+          | :negative_parcel_weight
           | :order_already_finished
           | Order.changeset()
 
-  @spec dispatch_for_order(String.t(), String.t(), point() | nil, point() | nil) ::
+  @spec dispatch_for_order(String.t(), String.t(), point() | nil, point() | nil, integer()) ::
           {:ok, Order.t()} | {:error, dispatch_error()}
-  def dispatch_for_order(order_number, merchant_principal_id, pickup_point, delivery_point) do
+  def dispatch_for_order(
+        order_number,
+        merchant_principal_id,
+        pickup_point,
+        delivery_point,
+        parcel_weight_grams
+      ) do
     with {:ok, number} <- require_order_number(order_number),
          {:ok, pickup} <- require_point(pickup_point, :pickup),
          {:ok, delivery} <- require_point(delivery_point, :delivery),
-         {:ok, order} <- find_or_book(number, merchant_principal_id, pickup, delivery) do
+         {:ok, weight_kg} <- parcel_kilograms(parcel_weight_grams),
+         {:ok, order} <- find_or_book(number, merchant_principal_id, pickup, delivery, weight_kg) do
       assign_if_unassigned(order)
     end
   end
+
+  @spec parcel_kilograms(integer()) ::
+          {:ok, non_neg_integer()} | {:error, :negative_parcel_weight}
+  defp parcel_kilograms(grams) when is_integer(grams) and grams >= 0,
+    do: {:ok, div(grams + 999, 1000)}
+
+  defp parcel_kilograms(_grams), do: {:error, :negative_parcel_weight}
 
   @spec require_point(point() | nil, :pickup | :delivery) ::
           {:ok, point()} | {:error, {:no_point, :pickup | :delivery}}
@@ -78,18 +93,24 @@ defmodule FleetPulse.Dispatch do
 
   defp require_order_number(_order_number), do: {:error, :blank_order_number}
 
-  @spec find_or_book(String.t(), String.t(), point(), point()) ::
+  @spec find_or_book(String.t(), String.t(), point(), point(), non_neg_integer()) ::
           {:ok, Order.t()} | {:error, dispatch_error()}
-  defp find_or_book(order_number, merchant_principal_id, pickup, delivery) do
+  defp find_or_book(order_number, merchant_principal_id, pickup, delivery, weight_kg) do
     case Repo.get_by(Order, order_number: order_number) do
       %Order{} = existing -> {:ok, existing}
-      nil -> book(order_number, merchant_principal_id, pickup, delivery)
+      nil -> book(order_number, merchant_principal_id, pickup, delivery, weight_kg)
     end
   end
 
-  @spec book(String.t(), String.t(), point(), point()) ::
+  @spec book(String.t(), String.t(), point(), point(), non_neg_integer()) ::
           {:ok, Order.t()} | {:error, dispatch_error()}
-  defp book(order_number, merchant_principal_id, {pickup_lat, pickup_lng}, {drop_lat, drop_lng}) do
+  defp book(
+         order_number,
+         merchant_principal_id,
+         {pickup_lat, pickup_lng},
+         {drop_lat, drop_lng},
+         weight_kg
+       ) do
     create_order(%{
       order_number: order_number,
       merchant_principal_id: merchant_principal_id,
@@ -97,6 +118,7 @@ defmodule FleetPulse.Dispatch do
       pickup_longitude: pickup_lng,
       dropoff_latitude: drop_lat,
       dropoff_longitude: drop_lng,
+      weight_kg: weight_kg,
       awb_number: Order.issue_awb()
     })
   end

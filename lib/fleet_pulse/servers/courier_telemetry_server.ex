@@ -26,7 +26,8 @@ defmodule FleetPulse.CourierTelemetryServer do
              request.order_number,
              request.merchant_principal_id,
              point(request.pickup_point),
-             point(request.delivery_point)
+             point(request.delivery_point),
+             request.parcel_weight_grams
            ),
          {:ok, driver} <- fetch_assigned_driver(order),
          {:ok, principal_id} <- payable_principal(order, driver) do
@@ -92,6 +93,9 @@ defmodule FleetPulse.CourierTelemetryServer do
   @spec describe(term()) :: {String.t(), String.t()}
   defp describe(:blank_order_number),
     do: {"BLANK_ORDER_NUMBER", "order_number is required: a fleet job delivers a named order"}
+
+  defp describe(:negative_parcel_weight),
+    do: {"INVALID_PARCEL_WEIGHT", "parcel_weight_grams cannot be negative"}
 
   defp describe(:order_already_finished),
     do: {"ORDER_ALREADY_FINISHED", "that order has already been delivered or cancelled"}
