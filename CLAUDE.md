@@ -82,15 +82,15 @@ order number, so a delivery order missed before is reported once more.
 the private `kinetix-pod` bucket, an object that is really there and whose stored checksum is the SHA-256 in its
 name. The courier asks for an upload address over the channel (`pod_upload` with `photo_sha256`, lowercase hex,
 only for a job they carry that is picked up); matching refuses one without the hash (`invalid_photo_hash`), and
-signs a short-lived PUT for the public storage host (`MINIO_PUBLIC_URL`) over `x-amz-checksum-sha256` and
-`if-none-match: *`. The reply carries those headers as `upload_headers`, and the app sends exactly them: MinIO
-then stores only the bytes the courier hashed, refuses a second write to the key (`412`), and refuses a request
+signs a short-lived PUT for the public storage host (`OBJECT_STORE_PUBLIC_URL`) over `x-amz-checksum-sha256` and
+`if-none-match: *`. The reply carries those headers as `upload_headers`, and the app sends exactly them: the store
+then keeps only the bytes the courier hashed, refuses a second write to the key (`412`), and refuses a request
 that leaves either header out. At `delivered` matching asks the object's checksum through the internal endpoint
 (`HEAD` with `x-amz-checksum-mode: ENABLED`); an object that is absent, carries no checksum or carries another is
 `invalid_proof`. If the bucket cannot be asked, the answer is `proof_unverifiable`, not a refusal: the courier
-tries again. MinIO also accepts and enforces those headers when they are not signed (measured 2026-10-16), so
-only the signature stops a client from dropping them; `MinioTest` fails if the upload address stops signing
-them. The signature must be a PNG in a `data:image/png;base64,` URI, which is what the app draws; a URL is no
+tries again. MinIO also accepted and enforced those headers unsigned (measured 2026-10-16), but whatever a store
+does with them, only the signature stops a client from dropping them; `S3Test` fails if the upload address stops
+signing them. The signature must be a PNG in a `data:image/png;base64,` URI, which is what the app draws; a URL is no
 longer accepted, because matching cannot hash what a URL points to.
 
 Before 2026-10-13 the app sent a path on the phone, which could never verify, and the server accepted a delivery
@@ -98,6 +98,15 @@ with no proof at all; until 2026-10-16 the upload address could be replayed for 
 A photo uploaded under the old `<uuid>.jpg` name carries no hash, so a courier holding one when this ships takes
 the photo again. The backoffice reads a photo through a fifteen-minute presigned GET. The URLs are signed over
 the Host header, so the gateway's storage route must keep the Host the phone sent (`preserve_host`).
+
+### The store is any S3 that keeps a SHA-256 checksum
+
+`FleetPulse.Storage.S3` speaks plain S3 through `SigV4`, and nothing in it is vendor-specific. Since 2026-10-18
+the store is VersityGW, which replaced MinIO when MinIO's repositories were archived (infrastructure's
+`docs/OBJECT-STORAGE.md` §8). The configuration is `OBJECT_STORE_*`; the store-backed tests are tagged
+`:object_store` and run when `OBJECT_STORE_TEST_ENDPOINT`, `_ACCESS_KEY` and `_SECRET_KEY` name a store. A
+checksum mismatch is AWS's `BadDigest`, which VersityGW, RustFS and SeaweedFS all answer; MinIO answered its own
+`XAmzContentChecksumMismatch`, and the test asserted that until the move.
 
 ### Every delivery is in the evidence log
 
@@ -131,6 +140,13 @@ rule, so infrastructure keeps matching's list to service entries until this rele
 `/drivers`, `/drivers/nearby` and `/drivers/:id` answer to `admin` only. Every seller could read every
 courier's live position, speed and heading, and an offline courier's last one, and nothing in the estate
 used the routes as a seller.
+
+### A parcel weighs at least what the sender says
+
+`DispatchCourier` carries `parcel_weight_grams`, and the job is booked with it in whole kilograms rounded up, so a
+1,200 g parcel is 2 kg: the capacity check (`min_capacity_kg`) must never see a parcel lighter than it is. Zero
+means the sender stated no weight, which is what order sends for an order placed before 2026-10-18, and books 0 kg
+as every job did before; a negative weight is refused as `INVALID_PARCEL_WEIGHT`.
 
 ### No arrival time is made up
 

@@ -1,6 +1,6 @@
 defmodule FleetPulse.FakeStorage do
   @moduledoc """
-  The proof-of-delivery bucket, as the suite needs it: an object holds the checksum MinIO would have
+  The proof-of-delivery bucket, as the suite needs it: an object holds the checksum the store would have
   stored for the bytes put through its upload address, an object can be put there without one, and
   the bucket can be made unreachable.
   """

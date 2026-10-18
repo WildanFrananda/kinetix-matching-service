@@ -1,27 +1,27 @@
-defmodule FleetPulse.Storage.MinioTest do
+defmodule FleetPulse.Storage.S3Test do
   use ExUnit.Case, async: false
 
-  alias FleetPulse.Storage.Minio
+  alias FleetPulse.Storage.S3
   alias FleetPulse.Storage.SigV4
 
-  @moduletag :minio
+  @moduletag :object_store
 
   @bucket "kinetix-pod-test"
 
   setup_all do
-    endpoint = System.fetch_env!("MINIO_TEST_ENDPOINT")
+    endpoint = System.fetch_env!("OBJECT_STORE_TEST_ENDPOINT")
 
     config = [
       endpoint: endpoint,
       public_url: endpoint,
       bucket: @bucket,
       region: "us-east-1",
-      access_key: System.fetch_env!("MINIO_TEST_ACCESS_KEY"),
-      secret_key: System.fetch_env!("MINIO_TEST_SECRET_KEY")
+      access_key: System.fetch_env!("OBJECT_STORE_TEST_ACCESS_KEY"),
+      secret_key: System.fetch_env!("OBJECT_STORE_TEST_SECRET_KEY")
     ]
 
-    previous = Application.get_env(:fleet_pulse, Minio)
-    Application.put_env(:fleet_pulse, Minio, config)
+    previous = Application.get_env(:fleet_pulse, S3)
+    Application.put_env(:fleet_pulse, S3, config)
     on_exit(fn -> restore(previous) end)
 
     {:ok, %Req.Response{status: status}} =
@@ -32,8 +32,8 @@ defmodule FleetPulse.Storage.MinioTest do
     %{config: config}
   end
 
-  defp restore(nil), do: Application.delete_env(:fleet_pulse, Minio)
-  defp restore(previous), do: Application.put_env(:fleet_pulse, Minio, previous)
+  defp restore(nil), do: Application.delete_env(:fleet_pulse, S3)
+  defp restore(previous), do: Application.put_env(:fleet_pulse, S3, previous)
 
   defp signed(method, path, config) do
     SigV4.presign(
@@ -73,40 +73,40 @@ defmodule FleetPulse.Storage.MinioTest do
     photo = photo()
     key = key_for(photo)
     digest = :crypto.hash(:sha256, photo)
-    upload = Minio.upload(key, digest)
+    upload = S3.upload(key, digest)
 
     assert {:ok, %Req.Response{status: 200}} = put(upload, photo, upload.headers)
-    assert {:ok, {:sha256, ^digest}} = Minio.checksum(key)
+    assert {:ok, {:sha256, ^digest}} = S3.checksum(key)
 
     assert {:ok, %Req.Response{status: 200, body: ^photo}} =
-             Req.get(Minio.read_url(key), retry: false, decode_body: false)
+             Req.get(S3.read_url(key), retry: false, decode_body: false)
   end
 
   test "an upload address takes only the bytes whose SHA-256 it was signed for" do
     photo = photo()
     key = key_for(photo)
-    upload = Minio.upload(key, :crypto.hash(:sha256, photo))
+    upload = S3.upload(key, :crypto.hash(:sha256, photo))
 
     assert {:ok, %Req.Response{status: 400, body: body}} = put(upload, photo(), upload.headers)
-    assert body =~ "XAmzContentChecksumMismatch"
-    assert {:ok, :absent} = Minio.checksum(key)
+    assert body =~ "BadDigest"
+    assert {:ok, :absent} = S3.checksum(key)
   end
 
   test "an upload address writes once: a second put is refused and the first photo stays" do
     photo = photo()
     key = key_for(photo)
     digest = :crypto.hash(:sha256, photo)
-    upload = Minio.upload(key, digest)
+    upload = S3.upload(key, digest)
 
     assert {:ok, %Req.Response{status: 200}} = put(upload, photo, upload.headers)
     assert {:ok, %Req.Response{status: 412}} = put(upload, photo, upload.headers)
-    assert {:ok, {:sha256, ^digest}} = Minio.checksum(key)
+    assert {:ok, {:sha256, ^digest}} = S3.checksum(key)
   end
 
   test "an upload address is refused without either header it was signed with" do
     photo = photo()
     key = key_for(photo)
-    upload = Minio.upload(key, :crypto.hash(:sha256, photo))
+    upload = S3.upload(key, :crypto.hash(:sha256, photo))
 
     for dropped <- Map.keys(upload.headers) do
       assert {:ok, %Req.Response{status: status, body: body}} =
@@ -116,7 +116,7 @@ defmodule FleetPulse.Storage.MinioTest do
       assert body =~ ~r{<Code>(AccessDenied|SignatureDoesNotMatch)</Code>}
     end
 
-    assert {:ok, :absent} = Minio.checksum(key)
+    assert {:ok, :absent} = S3.checksum(key)
   end
 
   test "an object stored without a checksum has none to show", %{config: config} do
@@ -125,16 +125,16 @@ defmodule FleetPulse.Storage.MinioTest do
     assert {:ok, %Req.Response{status: 200}} =
              Req.put(signed("PUT", "/#{@bucket}/#{key}", config), body: photo(), retry: false)
 
-    assert {:ok, :no_checksum} = Minio.checksum(key)
+    assert {:ok, :no_checksum} = S3.checksum(key)
   end
 
   test "a photo nobody uploaded is absent, not unknown" do
-    assert {:ok, :absent} = Minio.checksum(key())
+    assert {:ok, :absent} = S3.checksum(key())
   end
 
   test "an upload address with a forged signature is refused" do
     photo = photo()
-    upload = Minio.upload(key_for(photo), :crypto.hash(:sha256, photo))
+    upload = S3.upload(key_for(photo), :crypto.hash(:sha256, photo))
 
     forged = %{
       upload
@@ -153,17 +153,17 @@ defmodule FleetPulse.Storage.MinioTest do
     config: config
   } do
     photo = photo()
-    upload = Minio.upload(key_for(photo), :crypto.hash(:sha256, photo))
+    upload = S3.upload(key_for(photo), :crypto.hash(:sha256, photo))
     %URI{port: port} = URI.parse(config[:endpoint])
 
     assert {:ok, %Req.Response{status: 403}} =
-             put(upload, photo, Map.put(upload.headers, "host", "kinetix-minio:#{port}"))
+             put(upload, photo, Map.put(upload.headers, "host", "kinetix-object-store:#{port}"))
   end
 
   test "a bucket that cannot be reached is unknown, not absent", %{config: config} do
-    Application.put_env(:fleet_pulse, Minio, Keyword.put(config, :endpoint, "http://127.0.0.1:1"))
-    on_exit(fn -> Application.put_env(:fleet_pulse, Minio, config) end)
+    Application.put_env(:fleet_pulse, S3, Keyword.put(config, :endpoint, "http://127.0.0.1:1"))
+    on_exit(fn -> Application.put_env(:fleet_pulse, S3, config) end)
 
-    assert {:error, :unavailable} = Minio.checksum(key())
+    assert {:error, :unavailable} = S3.checksum(key())
   end
 end

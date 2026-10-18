@@ -47,7 +47,7 @@ defmodule FleetPulse.Dispatch.DeliveryEvidenceTest do
     number = "ORD-#{System.unique_integer([:positive])}"
 
     {:ok, order} =
-      Dispatch.dispatch_for_order(number, "merchant-1", @pickup, {-6.2088, 106.8456})
+      Dispatch.dispatch_for_order(number, "merchant-1", @pickup, {-6.2088, 106.8456}, 1_200)
 
     {:ok, order} = Dispatch.mark_picked_up(order.id, driver.id)
     {order, driver, principal}

@@ -1,11 +1,12 @@
-defmodule FleetPulse.Storage.Minio do
+defmodule FleetPulse.Storage.S3 do
   @moduledoc """
-  The proof-of-delivery bucket in MinIO. Upload and read URLs are signed for the public storage host
-  the phone and the backoffice dial; the checksum check is signed for the internal endpoint.
+  The proof-of-delivery bucket in the object store, spoken to as plain S3. Upload and read URLs are
+  signed for the public storage host the phone and the backoffice dial; the checksum check is signed
+  for the internal endpoint.
 
-  An upload URL signs `x-amz-checksum-sha256` and `if-none-match: *`, so MinIO stores only the bytes
-  whose SHA-256 the courier sent, refuses a second write to the same key, and refuses a request that
-  leaves either header out.
+  An upload URL signs `x-amz-checksum-sha256` and `if-none-match: *`, so the store keeps only the
+  bytes whose SHA-256 the courier sent, refuses a second write to the same key, and refuses a request
+  that leaves either header out.
   """
 
   @behaviour FleetPulse.Storage

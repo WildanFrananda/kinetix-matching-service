@@ -19,7 +19,7 @@ defmodule FleetPulse.Storage do
   def impl do
     :fleet_pulse
     |> Application.get_env(__MODULE__, [])
-    |> Keyword.get(:impl, FleetPulse.Storage.Minio)
+    |> Keyword.get(:impl, FleetPulse.Storage.S3)
   end
 
   @spec upload(String.t(), <<_::256>>) :: upload()
