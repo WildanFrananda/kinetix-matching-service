@@ -10,7 +10,16 @@ defmodule FleetPulse.Security.TokenVerifierTest do
 
   defp from, do: {self(), make_ref()}
 
-  defp closed(url), do: %{keys: %{}, url: url, failures: 0, open_until: nil}
+  defp closed(url) do
+    %{
+      keys: %{},
+      url: url,
+      failures: 0,
+      open_until: nil,
+      last_fetch: nil,
+      last_freshness: :fetched
+    }
+  end
 
   defp open(url) do
     %{closed(url) | failures: 3, open_until: System.monotonic_time(:millisecond) + 5_000}
@@ -62,6 +71,44 @@ defmodule FleetPulse.Security.TokenVerifierTest do
                TokenVerifier.handle_call({:key, "no-such-kid"}, from(), closed(jwks_url()))
 
       assert Map.has_key?(state.keys, IdentityJwks.kid())
+    end
+  end
+
+  describe "a kid the cache does not hold, asked again" do
+    test "is not fetched again within ten seconds of the last fetch" do
+      {:reply, {:error, :invalid_token}, fetched} =
+        TokenVerifier.handle_call({:key, "forged-1"}, from(), closed(jwks_url()))
+
+      unreachable = %{fetched | url: @nowhere}
+
+      assert {:reply, {:error, :invalid_token}, %{failures: 0}} =
+               TokenVerifier.handle_call({:key, "forged-2"}, from(), unreachable)
+    end
+
+    test "is fetched again once ten seconds have passed" do
+      {:reply, {:error, :invalid_token}, fetched} =
+        TokenVerifier.handle_call({:key, "forged-1"}, from(), closed(jwks_url()))
+
+      stale = %{
+        fetched
+        | url: @nowhere,
+          last_fetch: System.monotonic_time(:millisecond) - 11_000
+      }
+
+      {reply, _log} =
+        with_log(fn -> TokenVerifier.handle_call({:key, "forged-2"}, from(), stale) end)
+
+      assert {:reply, {:error, :identity_unavailable}, %{failures: 1}} = reply
+    end
+
+    test "after a failed fetch, is unavailable without fetching again" do
+      {{:reply, {:error, :identity_unavailable}, failed}, _log} =
+        with_log(fn ->
+          TokenVerifier.handle_call({:key, "some-kid"}, from(), closed(@nowhere))
+        end)
+
+      assert {:reply, {:error, :identity_unavailable}, %{failures: 1}} =
+               TokenVerifier.handle_call({:key, "other-kid"}, from(), failed)
     end
   end
 

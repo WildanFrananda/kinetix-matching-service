@@ -148,6 +148,14 @@ used the routes as a seller.
 means the sender stated no weight, which is what order sends for an order placed before 2026-10-18, and books 0 kg
 as every job did before; a negative weight is refused as `INVALID_PARCEL_WEIGHT`.
 
+### An unknown signing key is looked for at most every ten seconds
+
+`TokenVerifier` answers a token's `kid` from the keys it holds. A `kid` it does not hold makes it fetch identity's
+JWKS again only if its last fetch was at least `@unknown_key_refresh_ms` (ten seconds) ago; otherwise it answers
+with what that fetch found: `:invalid_token` if identity answered, `:identity_unavailable` if it did not. The
+breaker opened only after failures, so until 2026-10-19 a stream of forged tokens with made-up key ids, while
+identity was up, made identity answer once per request.
+
 ### No arrival time is made up
 
 `DispatchCourier` leaves `eta_minutes` at zero. It was a constant 10 whatever the distance; nothing read it,

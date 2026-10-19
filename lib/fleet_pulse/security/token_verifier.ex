@@ -15,13 +15,16 @@ defmodule FleetPulse.Security.TokenVerifier do
            keys: %{String.t() => JOSE.JWK.t()},
            url: String.t(),
            failures: non_neg_integer(),
-           open_until: integer() | nil
+           open_until: integer() | nil,
+           last_fetch: integer() | nil,
+           last_freshness: freshness()
          }
 
   @typep freshness :: :fetched | :unavailable
 
   @failures_before_open 3
   @open_for_ms 5_000
+  @unknown_key_refresh_ms 10_000
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -46,7 +49,15 @@ defmodule FleetPulse.Security.TokenVerifier do
 
   @impl GenServer
   def init(_opts) do
-    {:ok, %{keys: %{}, url: require_env("IDENTITY_JWKS_URL"), failures: 0, open_until: nil}}
+    {:ok,
+     %{
+       keys: %{},
+       url: require_env("IDENTITY_JWKS_URL"),
+       failures: 0,
+       open_until: nil,
+       last_fetch: nil,
+       last_freshness: :fetched
+     }}
   end
 
   @impl GenServer
@@ -56,7 +67,7 @@ defmodule FleetPulse.Security.TokenVerifier do
         {:reply, {:ok, jwk}, state}
 
       :error ->
-        {freshness, state} = fetch(state)
+        {freshness, state} = fetch_for_unknown_key(state, System.monotonic_time(:millisecond))
 
         case Map.fetch(state.keys, kid) do
           {:ok, jwk} -> {:reply, {:ok, jwk}, state}
@@ -75,6 +86,14 @@ defmodule FleetPulse.Security.TokenVerifier do
   defp miss(:fetched), do: :invalid_token
   defp miss(:unavailable), do: :identity_unavailable
 
+  @spec fetch_for_unknown_key(state(), integer()) :: {freshness(), state()}
+  defp fetch_for_unknown_key(%{last_fetch: last} = state, now)
+       when is_integer(last) and now - last < @unknown_key_refresh_ms do
+    {state.last_freshness, state}
+  end
+
+  defp fetch_for_unknown_key(state, now), do: fetch(state, now)
+
   @spec fetch(state()) :: {freshness(), state()}
   defp fetch(state), do: fetch(state, System.monotonic_time(:millisecond))
 
@@ -85,13 +104,23 @@ defmodule FleetPulse.Security.TokenVerifier do
     {:unavailable, state}
   end
 
-  defp fetch(state, _now) do
+  defp fetch(state, now) do
+    state = %{state | last_fetch: now}
+
     case get_jwks(state.url) do
       {:ok, %Req.Response{status: 200, body: %{"keys" => keys}}} when is_list(keys) ->
-        {:fetched, %{state | keys: import_keys(keys), failures: 0, open_until: nil}}
+        {:fetched,
+         %{
+           state
+           | keys: import_keys(keys),
+             failures: 0,
+             open_until: nil,
+             last_freshness: :fetched
+         }}
 
       other ->
-        {:unavailable, fetch_failed(state, System.monotonic_time(:millisecond), other)}
+        failed = fetch_failed(state, System.monotonic_time(:millisecond), other)
+        {:unavailable, %{failed | last_freshness: :unavailable}}
     end
   end
 
