@@ -62,13 +62,28 @@ defmodule FleetPulse.DeliverySettlementTest do
     {result, order, driver, principal}
   end
 
-  test "a delivery is reported to order, naming the courier who made it" do
+  test "a delivery is reported to order after the courier's reply, naming the courier" do
     number = "ORD-#{System.unique_integer([:positive])}"
 
-    {{:ok, delivered}, _order, _driver, principal} = deliver(number)
+    {{:ok, delivered}, order, _driver, principal} = deliver(number)
 
     assert delivered.status == :delivered
+    assert FakeOrder.calls() == []
+
+    assert DateTime.compare(Repo.get(Order, order.id).delivery_report_next_at, DateTime.utc_now()) !=
+             :gt
+
+    assert {:ok, 1} = sweep()
     assert FakeOrder.calls() == [{number, principal}]
+  end
+
+  test "the reporter is told at once that a delivery was made" do
+    start_supervised!(DeliveryReporter)
+    number = "ORD-#{System.unique_integer([:positive])}"
+
+    {{:ok, _delivered}, _order, _driver, principal} = deliver(number)
+
+    assert eventually(fn -> FakeOrder.calls() == [{number, principal}] end)
   end
 
   test "order being unreachable does not un-deliver the order" do
@@ -76,6 +91,7 @@ defmodule FleetPulse.DeliverySettlementTest do
     number = "ORD-#{System.unique_integer([:positive])}"
 
     {{:ok, delivered}, order, _driver, _principal} = deliver(number)
+    assert {:ok, 0} = sweep()
 
     assert delivered.status == :delivered
     assert Repo.get(Order, order.id).status == :delivered
@@ -85,9 +101,11 @@ defmodule FleetPulse.DeliverySettlementTest do
     FakeOrder.always({:error, :refused})
     number = "ORD-#{System.unique_integer([:positive])}"
 
-    {{:ok, delivered}, _order, _driver, _principal} = deliver(number)
+    {{:ok, delivered}, order, _driver, _principal} = deliver(number)
+    assert {:ok, 0} = sweep()
 
     assert delivered.status == :delivered
+    assert Repo.get(Order, order.id).status == :delivered
   end
 
   test "a fleet job with no order number reports nothing" do
@@ -105,6 +123,7 @@ defmodule FleetPulse.DeliverySettlementTest do
     {:ok, _} = Dispatch.assign_order_to_driver(order.id, driver.id)
     {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
     {:ok, delivered} = Dispatch.mark_delivered(order.id, driver.id, proof_for(order.id))
+    assert {:ok, 0} = sweep()
 
     assert delivered.status == :delivered
     assert FakeOrder.calls() == []
@@ -171,8 +190,20 @@ defmodule FleetPulse.DeliverySettlementTest do
   end
 
   defp sweep do
-    start_supervised!(DeliveryReporter)
+    case start_supervised(DeliveryReporter) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _pid}} -> :ok
+    end
+
     DeliveryReporter.report_now()
+  end
+
+  defp eventually(fun, retries \\ 50) do
+    cond do
+      fun.() -> true
+      retries == 0 -> false
+      true -> Process.sleep(20) && eventually(fun, retries - 1)
+    end
   end
 
   test "a delivery order cannot be told about stays owed and comes due again" do
@@ -180,6 +211,7 @@ defmodule FleetPulse.DeliverySettlementTest do
     number = "ORD-#{System.unique_integer([:positive])}"
 
     {{:ok, _delivered}, order, _driver, _principal} = deliver(number)
+    assert {:ok, 0} = sweep()
 
     owed = Repo.get(Order, order.id)
     assert owed.delivery_reported_at == nil
@@ -192,6 +224,7 @@ defmodule FleetPulse.DeliverySettlementTest do
     FakeOrder.always({:error, :unavailable})
     number = "ORD-#{System.unique_integer([:positive])}"
     {{:ok, delivered}, order, _driver, principal} = deliver(number)
+    assert {:ok, 0} = sweep()
 
     FakeOrder.always(:ok)
     due_now(order)
@@ -209,6 +242,7 @@ defmodule FleetPulse.DeliverySettlementTest do
   test "a delivery order recorded is not reported again" do
     number = "ORD-#{System.unique_integer([:positive])}"
     {{:ok, _delivered}, order, _driver, _principal} = deliver(number)
+    assert {:ok, 1} = sweep()
 
     due_now(order)
 
@@ -221,6 +255,7 @@ defmodule FleetPulse.DeliverySettlementTest do
     number = "ORD-#{System.unique_integer([:positive])}"
 
     {{:ok, _delivered}, order, _driver, principal} = deliver(number)
+    assert {:ok, 0} = sweep()
 
     halted = Repo.get(Order, order.id)
     assert halted.delivery_report_next_at == nil
@@ -237,7 +272,7 @@ defmodule FleetPulse.DeliverySettlementTest do
 
     {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
 
-    assert {:error, :invalid_proof} = Dispatch.mark_delivered(order.id, driver.id, %{})
+    assert {:error, :invalid_proof} = Dispatch.mark_delivered(order.id, driver.id, signed(%{}))
     assert Repo.get(Order, order.id).status == :picked_up
     assert FakeOrder.calls() == []
   end

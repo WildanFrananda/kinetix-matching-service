@@ -4,6 +4,7 @@ defmodule FleetPulse.CourierTelemetryServerTest do
   import FleetPulse.DeliveryProof
   import FleetPulse.TrackingFixtures
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias FleetPulse.CourierTelemetryServer
   alias FleetPulse.Dispatch
   alias FleetPulse.Dispatch.Order
@@ -288,6 +289,21 @@ defmodule FleetPulse.CourierTelemetryServerTest do
       assert res.success == false
       assert res.error.error_code == "INVALID_PARCEL_WEIGHT"
       assert Repo.get_by(Order, order_number: number) == nil
+    end
+  end
+
+  test "a dispatch the fleet cannot answer is an error status, which order retries, never a refusal" do
+    Sandbox.mode(Repo, :manual)
+
+    request = %DispatchCourierRequest{
+      merchant_principal_id: @merchant,
+      order_number: order_number(),
+      pickup_point: %GeoPoint{latitude: elem(@pickup, 0), longitude: elem(@pickup, 1)},
+      delivery_point: %GeoPoint{latitude: -6.2088, longitude: 106.8456}
+    }
+
+    assert_raise DBConnection.OwnershipError, fn ->
+      CourierTelemetryServer.dispatch_courier(request, nil)
     end
   end
 end

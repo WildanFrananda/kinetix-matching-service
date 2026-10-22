@@ -40,6 +40,23 @@ case System.get_env("LOG_LEVEL") do
             "Use one of: emergency alert critical error warning notice info debug."
 end
 
+if config_env() != :test do
+  required = fn name, what ->
+    case System.get_env(name) do
+      value when is_binary(value) and value != "" -> value
+      _missing -> raise "environment variable #{name} is missing: #{what}"
+    end
+  end
+
+  config :fleet_pulse, FleetPulse.Clients.OrderGrpc,
+    host:
+      required.("ORDER_GRPC_HOST", "the host:port of order's gRPC server, told of every delivery")
+
+  config :fleet_pulse,
+         :time_zone,
+         required.("KINETIX_TIME_ZONE", "the IANA zone the platform's day is counted in")
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||

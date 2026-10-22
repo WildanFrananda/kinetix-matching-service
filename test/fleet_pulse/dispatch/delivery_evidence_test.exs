@@ -82,12 +82,14 @@ defmodule FleetPulse.Dispatch.DeliveryEvidenceTest do
       assert evidence.delivered_at == delivered.delivered_at
     end
 
-    test "with no signature records none" do
+    test "without a signature is refused and writes nothing" do
       {order, driver, _principal} = picked_up()
+      unsigned = Map.delete(proof_for(order.id), "pod_signature")
 
-      {:ok, _delivered} = Dispatch.mark_delivered(order.id, driver.id, proof_for(order.id))
+      assert {:error, :signature_required} =
+               Dispatch.mark_delivered(order.id, driver.id, unsigned)
 
-      assert [%DeliveryEvidence{signature_sha256: nil}] = Repo.all(DeliveryEvidence)
+      assert Repo.all(DeliveryEvidence) == []
     end
 
     test "that is refused writes nothing" do
@@ -95,7 +97,7 @@ defmodule FleetPulse.Dispatch.DeliveryEvidenceTest do
       url = photo_url_for(order.id, photo_bytes())
 
       assert {:error, :invalid_proof} =
-               Dispatch.mark_delivered(order.id, driver.id, %{"pod_photo_url" => url})
+               Dispatch.mark_delivered(order.id, driver.id, signed(%{"pod_photo_url" => url}))
 
       assert Repo.all(DeliveryEvidence) == []
     end

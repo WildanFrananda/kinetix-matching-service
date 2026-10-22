@@ -1,6 +1,8 @@
 defmodule FleetPulse.Dispatch.DeliveryReporter do
   @moduledoc """
-  Reports the deliveries order has not recorded yet, every minute, backing off to an hour.
+  Reports the deliveries order has not recorded yet: at once when `kick/0` says a delivery was just
+  made, and every minute after, backing off to an hour. The courier's `delivered` reply never waits for
+  order.
 
   Disabled in `:test`; tests drive `report_now/0`.
   """
@@ -25,6 +27,9 @@ defmodule FleetPulse.Dispatch.DeliveryReporter do
   @spec report_now() :: {:ok, non_neg_integer()}
   def report_now, do: GenServer.call(__MODULE__, :report_now, :infinity)
 
+  @spec kick() :: :ok
+  def kick, do: GenServer.cast(__MODULE__, :report)
+
   @impl GenServer
   @spec init(keyword()) :: {:ok, t()}
   def init(_opts) do
@@ -44,6 +49,13 @@ defmodule FleetPulse.Dispatch.DeliveryReporter do
           {:reply, {:ok, non_neg_integer()}, t()}
   def handle_call(:report_now, _from, state) do
     {:reply, {:ok, report(state)}, state}
+  end
+
+  @impl GenServer
+  @spec handle_cast(:report, t()) :: {:noreply, t()}
+  def handle_cast(:report, state) do
+    _reported = report(state)
+    {:noreply, state}
   end
 
   @impl GenServer

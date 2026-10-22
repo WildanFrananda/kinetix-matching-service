@@ -1,12 +1,13 @@
 defmodule FleetPulseWeb.MerchantSocket do
   @moduledoc """
-  The websocket a merchant application connects to for real-time order and telemetry updates.
+  The websocket a merchant application connects to for real-time updates of its own fleet jobs.
   """
 
   use Phoenix.Socket
 
   alias FleetPulse.Security.AccessClaims
   alias FleetPulse.Security.TokenVerifier
+  alias FleetPulseWeb.SocketToken
 
   channel "merchant:*", FleetPulseWeb.MerchantChannel
 
@@ -20,16 +21,15 @@ defmodule FleetPulseWeb.MerchantSocket do
   @impl Phoenix.Socket
   @spec connect(map(), Phoenix.Socket.t(), map()) ::
           {:ok, Phoenix.Socket.t()} | {:error, error()}
-  def connect(%{"token" => token}, socket, _connect_info) when is_binary(token) do
-    with {:ok, %AccessClaims{} = claims} <- TokenVerifier.verify_access(token),
+  def connect(params, socket, connect_info) do
+    with {:ok, token} <- SocketToken.from(params, connect_info),
+         {:ok, %AccessClaims{} = claims} <- TokenVerifier.verify_access(token),
          :ok <- merchant?(claims) do
       {:ok, assign(socket, :merchant_principal_id, claims.principal_id)}
     else
       {:error, reason} -> {:error, reason}
     end
   end
-
-  def connect(_params, _socket, _connect_info), do: {:error, :missing_token}
 
   @spec handle_error(Plug.Conn.t(), error()) :: Plug.Conn.t()
   def handle_error(conn, :identity_unavailable), do: Plug.Conn.send_resp(conn, 503, "")

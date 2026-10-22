@@ -8,6 +8,7 @@ defmodule FleetPulseWeb.DriverSocket do
   alias FleetPulse.Security.AccessClaims
   alias FleetPulse.Security.TokenVerifier
   alias FleetPulse.Tracking
+  alias FleetPulseWeb.SocketToken
 
   channel "driver:*", FleetPulseWeb.DriverChannel
 
@@ -23,8 +24,9 @@ defmodule FleetPulseWeb.DriverSocket do
   @impl Phoenix.Socket
   @spec connect(map(), Phoenix.Socket.t(), map()) ::
           {:ok, Phoenix.Socket.t()} | {:error, error()}
-  def connect(%{"token" => token}, socket, _connect_info) when is_binary(token) do
-    with {:ok, %AccessClaims{} = claims} <- TokenVerifier.verify_access(token),
+  def connect(params, socket, connect_info) do
+    with {:ok, token} <- SocketToken.from(params, connect_info),
+         {:ok, %AccessClaims{} = claims} <- TokenVerifier.verify_access(token),
          :ok <- courier?(claims),
          {:ok, driver} <- Tracking.driver_for_principal(claims.principal_id) do
       {:ok, assign(socket, :driver_id, driver.id)}
@@ -32,8 +34,6 @@ defmodule FleetPulseWeb.DriverSocket do
       {:error, reason} -> {:error, reason}
     end
   end
-
-  def connect(_params, _socket, _connect_info), do: {:error, :missing_token}
 
   @spec handle_error(Plug.Conn.t(), error()) :: Plug.Conn.t()
   def handle_error(conn, :identity_unavailable), do: Plug.Conn.send_resp(conn, 503, "")

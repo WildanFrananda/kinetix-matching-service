@@ -18,7 +18,10 @@ defmodule FleetPulse.Dispatch.Events do
   @orders_topic "dispatch:orders"
 
   @typedoc "Every message a dispatch subscriber can receive."
-  @type event :: {:order_assigned, Order.t()} | {:order_updated, Order.t()}
+  @type event ::
+          {:order_assigned, Order.t()}
+          | {:order_updated, Order.t()}
+          | {:order_unassigned, Order.t()}
 
   @typedoc "Result of a subscription; mirrors `Phoenix.PubSub.subscribe/2`."
   @type subscribe_result :: :ok | {:error, {:already_registered, pid()}}

@@ -79,6 +79,7 @@ defmodule FleetPulse.MixProject do
       {:grpc, "~> 1.0"},
       {:grpc_reflection, "~> 0.5"},
       {:protobuf, "~> 0.13"},
+      {:tz, "~> 0.28.4"},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]

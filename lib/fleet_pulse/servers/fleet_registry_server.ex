@@ -99,7 +99,7 @@ defmodule FleetPulse.Servers.FleetRegistryServer do
   defp require_capacity(capacity) when is_integer(capacity) and capacity > 0, do: {:ok, capacity}
   defp require_capacity(_absent_or_zero), do: {:error, :no_capacity}
 
-  @spec describe(term()) :: {String.t(), String.t()}
+  @spec describe(term()) :: {String.t(), String.t()} | no_return()
   defp describe(:blank_principal),
     do:
       {"BLANK_PRINCIPAL",
@@ -129,5 +129,9 @@ defmodule FleetPulse.Servers.FleetRegistryServer do
     {"REGISTRATION_REFUSED", "the fleet row could not be written: #{details}"}
   end
 
-  defp describe(other), do: {"FLEET_REGISTRY_FAILED", inspect(other)}
+  defp describe(other) do
+    raise GRPC.RPCError,
+      status: GRPC.Status.internal(),
+      message: "the fleet registry failed in a way it does not answer for: #{inspect(other)}"
+  end
 end

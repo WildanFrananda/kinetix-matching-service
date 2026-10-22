@@ -1,27 +1,12 @@
 defmodule FleetPulse.Tracking.Telemetry do
   @moduledoc """
   Validation and normalisation of inbound GPS telemetry.
-
-  Pure functions only — no processes, no database, no side effects. This logic
-  lived inside `DriverState` until it needed a second caller: the driver
-  channel must reject a malformed payload at the socket boundary, before
-  anything enters the domain at all.
-
-  Every bound enforced here mirrors a CHECK constraint in the
-  `create_location_pings` migration. Those constraints are the specification;
-  this module is their application-layer twin. Change one, change both.
   """
 
   alias FleetPulse.Types
 
-  @typedoc """
-  A validated, normalised telemetry payload.
+  @max_lead_seconds 300
 
-  After `normalise/1` every key is present, every number is a float, and
-  `recorded_at` carries microsecond precision — `Repo.insert_all/3` dumps
-  `:utc_datetime_usec` through `check_usec!/2`, which raises on anything
-  coarser and never pads it for you.
-  """
   @type t :: %{
           latitude: Types.latitude(),
           longitude: Types.longitude(),
@@ -30,15 +15,6 @@ defmodule FleetPulse.Tracking.Telemetry do
           recorded_at: DateTime.t()
         }
 
-  @doc """
-  Validates and normalises a raw telemetry payload.
-
-  Unknown keys are discarded: the result is built fresh rather than merged
-  into the input, so a device cannot smuggle extra fields into the domain.
-
-  Returns `{:error, :invalid_telemetry}` rather than raising — a misbehaving
-  device is an ordinary result to handle, not an exceptional condition.
-  """
   @spec normalise(term()) :: {:ok, t()} | {:error, :invalid_telemetry}
   def normalise(%{recorded_at: %DateTime{} = recorded_at} = payload) do
     with {:ok, lat} <- latitude(Map.get(payload, :latitude)),
@@ -58,18 +34,6 @@ defmodule FleetPulse.Tracking.Telemetry do
 
   def normalise(_payload), do: {:error, :invalid_telemetry}
 
-  @doc """
-  Builds telemetry from raw socket params, where keys are strings and
-  `recorded_at` is an ISO 8601 string.
-
-  Keys are mapped explicitly, never with `String.to_atom/1`: atoms are not
-  garbage collected, so converting attacker-controlled strings is a memory
-  exhaustion vector.
-
-  This lives in the domain rather than the channel so the wire-format rules
-  sit beside the value rules they feed, and so both are unit-testable without
-  a socket.
-  """
   @spec from_params(term()) :: {:ok, t()} | {:error, :invalid_telemetry}
   def from_params(params) when is_map(params) do
     with {:ok, recorded_at} <- parse_datetime(Map.get(params, "recorded_at")) do
@@ -84,6 +48,15 @@ defmodule FleetPulse.Tracking.Telemetry do
   end
 
   def from_params(_params), do: {:error, :invalid_telemetry}
+
+  @spec not_ahead_of(t(), DateTime.t()) :: :ok | {:error, :invalid_telemetry}
+  def not_ahead_of(%{recorded_at: recorded_at}, now) do
+    within_lead(DateTime.diff(recorded_at, now, :second))
+  end
+
+  @spec within_lead(integer()) :: :ok | {:error, :invalid_telemetry}
+  defp within_lead(lead) when lead > @max_lead_seconds, do: {:error, :invalid_telemetry}
+  defp within_lead(_lead), do: :ok
 
   @spec latitude(term()) :: {:ok, Types.latitude()} | {:error, :invalid_telemetry}
   defp latitude(value) when is_number(value) and value >= -90 and value <= 90,

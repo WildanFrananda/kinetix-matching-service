@@ -18,6 +18,8 @@ defmodule FleetPulse.Storage.S3 do
   @upload_expiry_seconds 600
   @read_expiry_seconds 900
   @check_expiry_seconds 60
+  @check_connect_timeout_ms 1_000
+  @check_receive_timeout_ms 1_000
 
   @impl FleetPulse.Storage
   def upload(key, sha256) do
@@ -55,8 +57,8 @@ defmodule FleetPulse.Storage.S3 do
            url,
            headers: headers,
            retry: false,
-           connect_options: [timeout: 2_000],
-           receive_timeout: 3_000
+           connect_options: [timeout: @check_connect_timeout_ms],
+           receive_timeout: @check_receive_timeout_ms
          ) do
       {:ok, %Req.Response{status: 200} = response} ->
         {:ok, stored_checksum(response)}
@@ -70,6 +72,37 @@ defmodule FleetPulse.Storage.S3 do
 
       {:error, reason} ->
         Logger.error("[Storage] checking #{key} failed: #{inspect(reason)}")
+        {:error, :unavailable}
+    end
+  end
+
+  @impl FleetPulse.Storage
+  def leading_bytes(key, count) do
+    url = presign("GET", config(:endpoint), key, @check_expiry_seconds, %{})
+
+    case Req.get(
+           url,
+           headers: %{"range" => "bytes=0-#{count - 1}"},
+           retry: false,
+           decode_body: false,
+           connect_options: [timeout: @check_connect_timeout_ms],
+           receive_timeout: @check_receive_timeout_ms
+         ) do
+      {:ok, %Req.Response{status: status, body: body}} when status in [200, 206] ->
+        {:ok, binary_part(body, 0, min(byte_size(body), count))}
+
+      {:ok, %Req.Response{status: 404}} ->
+        {:ok, :absent}
+
+      {:ok, %Req.Response{status: 416}} ->
+        {:ok, ""}
+
+      {:ok, %Req.Response{status: status}} ->
+        Logger.error("[Storage] reading the start of #{key} was answered #{status}")
+        {:error, :unavailable}
+
+      {:error, reason} ->
+        Logger.error("[Storage] reading the start of #{key} failed: #{inspect(reason)}")
         {:error, :unavailable}
     end
   end

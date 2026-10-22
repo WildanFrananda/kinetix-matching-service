@@ -47,7 +47,7 @@ defmodule FleetPulseWeb.Api.V1.DriverProfileController do
       id: driver.id,
       vehicle_plate: driver.vehicle_plate,
       capacity_kg: driver.capacity_kg,
-      status: driver.status,
+      status: Tracking.live_status(driver.id),
       active: driver.active
     }
   end

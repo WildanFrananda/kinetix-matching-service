@@ -16,9 +16,20 @@ defmodule FleetPulse.Tracking.IdleReaperTest do
   defp tracked!(status) do
     driver = driver_fixture()
     {:ok, _pid} = Tracking.start_tracking(driver.id)
-    {:ok, _driver} = Tracking.set_status(driver.id, status)
+    :ok = put_on(driver.id, status)
     on_exit(fn -> cleanup(driver.id) end)
     driver
+  end
+
+  defp put_on(driver_id, :busy) do
+    {:ok, _state} = Tracking.set_status(driver_id, :online)
+    {:ok, %{status: :busy}} = DriverState.claim(driver_id)
+    :ok
+  end
+
+  defp put_on(driver_id, status) do
+    {:ok, _state} = Tracking.set_status(driver_id, status)
+    :ok
   end
 
   defp cleanup(driver_id) do
@@ -54,6 +65,16 @@ defmodule FleetPulse.Tracking.IdleReaperTest do
 
       assert :active = DriverState.stop_if_idle(driver.id, future_cutoff())
       assert {:ok, %{status: :busy}} = Tracking.fetch_state(driver.id)
+    end
+
+    test "leaves an offline driver running while a channel serves it" do
+      driver = tracked!(:offline)
+      channel = spawn(fn -> Process.sleep(:infinity) end)
+      on_exit(fn -> Process.exit(channel, :kill) end)
+      {:ok, _state} = Tracking.attach_channel(driver.id, channel)
+
+      assert :active = DriverState.stop_if_idle(driver.id, future_cutoff())
+      assert {:ok, %{status: :offline}} = Tracking.fetch_state(driver.id)
     end
 
     test "reports a driver that is not tracked at all" do

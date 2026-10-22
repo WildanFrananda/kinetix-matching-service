@@ -1,22 +1,6 @@
 defmodule FleetPulseWeb.DriverChannel do
   @moduledoc """
-  Telemetry ingress for one driver (PRD 5.1).
-
-  Thin by design: it parses the wire format, checks authorisation, and hands
-  everything else to `FleetPulse.Tracking`. No business rules live here.
-
-  ## Disconnect policy
-
-  When the channel dies the driver is marked `:offline`, but its
-  `DriverState` process is deliberately LEFT RUNNING. Mobile connections drop
-  constantly — tunnels, cell handovers, screen locks — and a reconnect seconds
-  later should not have to re-read Postgres and lose whatever position had not
-  been flushed yet.
-
-  KNOWN DEBT: nothing reaps a process whose driver never comes back. Those
-  processes keep their cache entry, so the batcher re-persists their stale
-  position every interval, forever. An idle reaper (stop any driver with no
-  update for N minutes) is required before this runs at PRD scale.
+  Telemetry ingress for one driver
   """
 
   use FleetPulseWeb, :channel
@@ -24,12 +8,14 @@ defmodule FleetPulseWeb.DriverChannel do
   alias FleetPulse.Dispatch
   alias FleetPulse.Dispatch.Events
   alias FleetPulse.Dispatch.Order
+  alias FleetPulse.RateLimit
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.Driver
   alias FleetPulse.Tracking.Telemetry
   alias FleetPulse.Types
 
-  @typedoc "An order serialised for the wire — the shape pushed to a device."
+  @order_events ["pickup", "pod_upload", "delivered"]
+
   @type order_wire :: %{
           id: term(),
           status: term(),
@@ -39,35 +25,35 @@ defmodule FleetPulseWeb.DriverChannel do
           assigned_at: term()
         }
 
-  @typedoc """
-  Every failure that can reach a driver's device from this channel.
-
-  Enumerated rather than left as `term()` so that adding a new error path in
-  the context makes Dialyzer point here, instead of the new case silently
-  collapsing into the `"unprocessable"` catch-all.
-  """
   @type error ::
-          :forbidden
+          :batch_too_large
+          | :forbidden
+          | :invalid_batch
+          | :invalid_order_id
           | :invalid_photo_hash
           | :invalid_status
           | :invalid_telemetry
           | :invalid_topic
           | :invalid_transition
+          | :no_active_job
           | :not_found
+          | :pending_approval
+          | :rate_limited
+          | :unavailable
           | {:start_failed, term()}
           | Driver.changeset()
 
   @impl Phoenix.Channel
   @spec join(String.t(), map(), Phoenix.Socket.t()) ::
-          {:ok, Phoenix.Socket.t()} | {:error, %{reason: String.t()}}
+          {:ok, %{status: Driver.status()}, Phoenix.Socket.t()} | {:error, %{reason: String.t()}}
   def join("driver:" <> topic_id, _payload, socket) do
     with {:ok, driver_id} <- parse_id(topic_id),
          :ok <- authorise(driver_id, socket.assigns.driver_id),
-         {:ok, _pid} <- Tracking.start_tracking(driver_id),
-         {:ok, _driver} <- Tracking.set_status(driver_id, join_status(driver_id)) do
+         {:ok, _driver} <- Tracking.fetch_active_driver(driver_id),
+         {:ok, state} <- Tracking.attach_channel(driver_id, self()) do
       :ok = Events.subscribe_driver(driver_id)
       send(self(), :after_join)
-      {:ok, assign(socket, :tracking, driver_id)}
+      {:ok, %{status: state.status}, assign(socket, :tracking, driver_id)}
     else
       {:error, reason} -> {:error, %{reason: to_reason(reason)}}
     end
@@ -77,13 +63,14 @@ defmodule FleetPulseWeb.DriverChannel do
 
   @impl Phoenix.Channel
   @spec handle_in(String.t(), map(), Phoenix.Socket.t()) ::
-          {:reply, :ok | {:error, %{reason: String.t()}}, Phoenix.Socket.t()}
+          {:reply, :ok | {:ok, map()} | {:error, %{reason: String.t()}}, Phoenix.Socket.t()}
           | {:noreply, Phoenix.Socket.t()}
 
   def handle_in("ping", params, socket) do
     driver_id = socket.assigns.driver_id
 
-    with {:ok, telemetry} <- Telemetry.from_params(params),
+    with :ok <- within_ping_budget(driver_id),
+         {:ok, telemetry} <- Telemetry.from_params(params),
          :ok <- Tracking.track_location(driver_id, telemetry) do
       {:reply, :ok, socket}
     else
@@ -91,23 +78,43 @@ defmodule FleetPulseWeb.DriverChannel do
     end
   end
 
-  def handle_in("status", %{"status" => status}, socket) do
+  def handle_in("ping_batch", %{"pings" => pings}, socket) do
     driver_id = socket.assigns.driver_id
 
-    with {:ok, parsed} <- parse_status(status),
-         {:ok, _driver} <- Tracking.set_status(driver_id, parsed) do
-      {:reply, :ok, socket}
+    with :ok <- within_batch_budget(driver_id),
+         {:ok, outcome} <- Tracking.record_offline_positions(driver_id, pings) do
+      {:reply, {:ok, outcome}, socket}
     else
       {:error, reason} -> {:reply, {:error, %{reason: to_reason(reason)}}, socket}
     end
   end
 
-  def handle_in("pickup", %{"order_id" => order_id}, socket) when is_integer(order_id) do
+  def handle_in("ping_batch", _payload, socket) do
+    {:reply, {:error, %{reason: "invalid_batch"}}, socket}
+  end
+
+  def handle_in("status", %{"status" => status}, socket) do
+    driver_id = socket.assigns.driver_id
+
+    with {:ok, parsed} <- parse_status(status),
+         {:ok, state} <- Tracking.set_status(driver_id, parsed) do
+      {:reply, {:ok, %{status: state.status}}, socket}
+    else
+      {:error, reason} -> {:reply, {:error, %{reason: to_reason(reason)}}, socket}
+    end
+  end
+
+  def handle_in("status", _payload, socket) do
+    {:reply, {:error, %{reason: "invalid_status"}}, socket}
+  end
+
+  def handle_in("pickup", %{"order_id" => order_id}, socket)
+      when is_integer(order_id) and order_id > 0 do
     reply_transition(Dispatch.mark_picked_up(order_id, socket.assigns.driver_id), socket)
   end
 
   def handle_in("pod_upload", %{"order_id" => order_id} = payload, socket)
-      when is_integer(order_id) do
+      when is_integer(order_id) and order_id > 0 do
     case Dispatch.pod_upload(order_id, socket.assigns.driver_id, payload["photo_sha256"]) do
       {:ok, upload} -> {:reply, {:ok, upload}, socket}
       {:error, reason} -> {:reply, {:error, %{reason: to_reason(reason)}}, socket}
@@ -115,8 +122,12 @@ defmodule FleetPulseWeb.DriverChannel do
   end
 
   def handle_in("delivered", %{"order_id" => order_id} = payload, socket)
-      when is_integer(order_id) do
+      when is_integer(order_id) and order_id > 0 do
     reply_transition(Dispatch.mark_delivered(order_id, socket.assigns.driver_id, payload), socket)
+  end
+
+  def handle_in(event, _payload, socket) when event in @order_events do
+    {:reply, {:error, %{reason: "invalid_order_id"}}, socket}
   end
 
   def handle_in(_event, _params, socket) do
@@ -140,16 +151,45 @@ defmodule FleetPulseWeb.DriverChannel do
     {:noreply, socket}
   end
 
+  def handle_info({:order_unassigned, %Order{} = order}, socket) do
+    push(socket, "order_unassigned", %{id: order.id})
+    push(socket, "active_order", active_order_payload(socket.assigns.driver_id))
+    {:noreply, socket}
+  end
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl Phoenix.Channel
   @spec terminate(term(), Phoenix.Socket.t()) :: :ok
   def terminate(_reason, %Phoenix.Socket{assigns: %{tracking: driver_id}}) do
-    _ = Tracking.set_status(driver_id, :offline)
-    :ok
+    Tracking.detach_channel(driver_id, self())
   end
 
   def terminate(_reason, _socket), do: :ok
+
+  @spec within_ping_budget(Types.id()) :: :ok | {:error, :rate_limited}
+  defp within_ping_budget(driver_id) do
+    within_budget("ping:#{driver_id}", :ping_window_ms, :ping_limit)
+  end
+
+  @spec within_batch_budget(Types.id()) :: :ok | {:error, :rate_limited}
+  defp within_batch_budget(driver_id) do
+    within_budget("ping_batch:#{driver_id}", :ping_batch_window_ms, :ping_batch_limit)
+  end
+
+  @spec within_budget(String.t(), atom(), atom()) :: :ok | {:error, :rate_limited}
+  defp within_budget(key, window, limit) do
+    config = Application.fetch_env!(:fleet_pulse, __MODULE__)
+
+    key
+    |> RateLimit.hit(Keyword.fetch!(config, window), Keyword.fetch!(config, limit))
+    |> verdict()
+  end
+
+  @spec verdict({:allow, non_neg_integer()} | {:deny, non_neg_integer()}) ::
+          :ok | {:error, :rate_limited}
+  defp verdict({:allow, _count}), do: :ok
+  defp verdict({:deny, _retry_after_ms}), do: {:error, :rate_limited}
 
   @spec authorise(Types.id(), Types.id()) :: :ok | {:error, :forbidden}
   defp authorise(driver_id, driver_id), do: :ok
@@ -173,7 +213,7 @@ defmodule FleetPulseWeb.DriverChannel do
 
   defp parse_status(_status), do: {:error, :invalid_status}
 
-  @spec to_reason(error()) :: String.t()
+  @spec to_reason(error() | atom()) :: String.t()
   defp to_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp to_reason(_reason), do: "unprocessable"
 
@@ -184,15 +224,6 @@ defmodule FleetPulseWeb.DriverChannel do
   defp reply_transition({:error, reason}, socket) do
     {:reply, {:error, %{reason: to_reason(reason)}}, socket}
   end
-
-  @spec join_status(Types.id()) :: :online | :busy
-  defp join_status(driver_id) do
-    status_for(Dispatch.active_order_for_driver(driver_id))
-  end
-
-  @spec status_for(Order.t() | nil) :: :online | :busy
-  defp status_for(nil), do: :online
-  defp status_for(%Order{}), do: :busy
 
   @spec active_order_payload(Types.id()) :: %{order: order_wire() | nil}
   defp active_order_payload(driver_id) do

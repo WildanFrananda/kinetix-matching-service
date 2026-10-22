@@ -1,6 +1,7 @@
 defmodule FleetPulse.Servers.FleetRegistryServerTest do
   use FleetPulse.DataCase, async: false
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias FleetPulse.Proto.Fleet.V1.ActivateDriverRequest
   alias FleetPulse.Proto.Fleet.V1.RegisterDriverRequest
   alias FleetPulse.Servers.FleetRegistryServer
@@ -18,6 +19,15 @@ defmodule FleetPulse.Servers.FleetRegistryServerTest do
 
   defp activate(principal_id) do
     FleetRegistryServer.activate_driver(%ActivateDriverRequest{principal_id: principal_id}, nil)
+  end
+
+  describe "when the fleet cannot answer" do
+    test "a database it cannot reach is an error, never a refusal identity would act on" do
+      Sandbox.mode(Repo, :manual)
+
+      assert_raise DBConnection.OwnershipError, fn -> register() end
+      assert_raise DBConnection.OwnershipError, fn -> activate(principal()) end
+    end
   end
 
   describe "RegisterDriver" do

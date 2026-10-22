@@ -1,8 +1,8 @@
 defmodule FleetPulse.FakeStorage do
   @moduledoc """
-  The proof-of-delivery bucket, as the suite needs it: an object holds the checksum the store would have
-  stored for the bytes put through its upload address, an object can be put there without one, and
-  the bucket can be made unreachable.
+  The proof-of-delivery bucket, as the suite needs it: an object holds the bytes put through its upload
+  address and the checksum the store would have stored for them, an object can be put there without
+  one, and the bucket can be made unreachable.
   """
 
   @behaviour FleetPulse.Storage
@@ -22,10 +22,10 @@ defmodule FleetPulse.FakeStorage do
   def reset, do: Agent.update(@agent, fn _ -> empty() end)
 
   @spec uploaded(String.t(), binary()) :: :ok
-  def uploaded(url, bytes), do: store(url, {:sha256, :crypto.hash(:sha256, bytes)})
+  def uploaded(url, bytes), do: store(url, {:sha256, :crypto.hash(:sha256, bytes)}, bytes)
 
   @spec uploaded_without_checksum(String.t()) :: :ok
-  def uploaded_without_checksum(url), do: store(url, :no_checksum)
+  def uploaded_without_checksum(url), do: store(url, :no_checksum, <<0xFF, 0xD8, 0xFF, 0xE0>>)
 
   @spec unreachable() :: :ok
   def unreachable, do: Agent.update(@agent, &%{&1 | reachable: false})
@@ -52,14 +52,30 @@ defmodule FleetPulse.FakeStorage do
   def checksum(key) do
     Agent.get(@agent, fn
       %{reachable: false} -> {:error, :unavailable}
-      %{objects: objects} -> {:ok, Map.get(objects, key, :absent)}
+      %{objects: %{^key => object}} -> {:ok, object.checksum}
+      %{objects: _others} -> {:ok, :absent}
     end)
   end
 
-  @spec store(String.t(), FleetPulse.Storage.checksum()) :: :ok
-  defp store(url, checksum) do
+  @impl FleetPulse.Storage
+  def leading_bytes(key, count) do
+    Agent.get(@agent, fn
+      %{reachable: false} ->
+        {:error, :unavailable}
+
+      %{objects: %{^key => object}} ->
+        {:ok, binary_part(object.bytes, 0, min(count, byte_size(object.bytes)))}
+
+      %{objects: _others} ->
+        {:ok, :absent}
+    end)
+  end
+
+  @spec store(String.t(), FleetPulse.Storage.checksum(), binary()) :: :ok
+  defp store(url, checksum, bytes) do
     {:ok, key} = key_of(url)
-    Agent.update(@agent, &%{&1 | objects: Map.put(&1.objects, key, checksum)})
+    object = %{checksum: checksum, bytes: bytes}
+    Agent.update(@agent, &%{&1 | objects: Map.put(&1.objects, key, object)})
   end
 
   @spec empty() :: %{objects: %{}, reachable: true}

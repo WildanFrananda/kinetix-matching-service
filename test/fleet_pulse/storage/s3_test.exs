@@ -130,6 +130,16 @@ defmodule FleetPulse.Storage.S3Test do
 
   test "a photo nobody uploaded is absent, not unknown" do
     assert {:ok, :absent} = S3.checksum(key())
+    assert {:ok, :absent} = S3.leading_bytes(key(), 3)
+  end
+
+  test "reads back only the first bytes of a stored photo, which show what kind of file it is" do
+    photo = photo()
+    key = key_for(photo)
+    upload = S3.upload(key, :crypto.hash(:sha256, photo))
+
+    assert {:ok, %Req.Response{status: 200}} = put(upload, photo, upload.headers)
+    assert {:ok, <<0xFF, 0xD8, 0xFF>>} = S3.leading_bytes(key, 3)
   end
 
   test "an upload address with a forged signature is refused" do
@@ -165,5 +175,6 @@ defmodule FleetPulse.Storage.S3Test do
     on_exit(fn -> Application.put_env(:fleet_pulse, S3, config) end)
 
     assert {:error, :unavailable} = S3.checksum(key())
+    assert {:error, :unavailable} = S3.leading_bytes(key(), 3)
   end
 end

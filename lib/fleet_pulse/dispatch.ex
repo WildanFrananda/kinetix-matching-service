@@ -6,10 +6,12 @@ defmodule FleetPulse.Dispatch do
   import Ecto.Query
 
   alias FleetPulse.Dispatch.DeliveryEvidence
-  alias FleetPulse.Dispatch.DeliveryReport
+  alias FleetPulse.Dispatch.DeliveryReporter
   alias FleetPulse.Dispatch.Events
   alias FleetPulse.Dispatch.Order
   alias FleetPulse.Dispatch.Proof
+  alias FleetPulse.Dispatch.Unassignment
+  alias FleetPulse.PlatformTimeZone
   alias FleetPulse.Repo
   alias FleetPulse.Storage
   alias FleetPulse.Tracking
@@ -22,6 +24,7 @@ defmodule FleetPulse.Dispatch do
           | :invalid_transition
           | :invalid_proof
           | :proof_unverifiable
+          | :signature_required
           | :unlinked
 
   @type pod_upload :: %{
@@ -33,10 +36,17 @@ defmodule FleetPulse.Dispatch do
   @legal_transitions %{
     pending: [:cancelled],
     assigned: [:picked_up, :cancelled],
-    picked_up: [:delivered, :cancelled]
+    picked_up: [:delivered]
   }
 
   @type assign_error :: :no_driver_available | :not_found | :already_assigned
+
+  @type manual_assign_error ::
+          assign_error() | :driver_not_found | :driver_not_tracked | :driver_unavailable
+
+  @type cancel_error :: :not_found | :invalid_transition | :bound_to_order
+
+  @type unassign_error :: :not_found | :not_assigned | :invalid_transition | Ecto.Changeset.t()
 
   @type point :: {float(), float()}
 
@@ -47,6 +57,20 @@ defmodule FleetPulse.Dispatch do
           | :negative_parcel_weight
           | :order_already_finished
           | Order.changeset()
+
+  @default_page_size 50
+
+  @type order_filter :: [
+          status: Order.status() | :all,
+          limit: pos_integer() | nil,
+          before: Types.id() | nil
+        ]
+
+  @type order_page :: %{orders: [Order.t()], next_cursor: Types.id() | nil}
+
+  @typep outcome :: :changed | :repeated
+
+  @typep proof :: %{principal: String.t(), photo: Proof.digest(), signature: Proof.digest()}
 
   @spec dispatch_for_order(String.t(), String.t(), point() | nil, point() | nil, integer()) ::
           {:ok, Order.t()} | {:error, dispatch_error()}
@@ -161,26 +185,37 @@ defmodule FleetPulse.Dispatch do
     |> Repo.all()
   end
 
-  @type order_filter :: [status: Order.status() | :all, limit: pos_integer()]
-
-  @spec list_orders(order_filter()) :: [Order.t()]
-  def list_orders(opts \\ []) do
-    status = Keyword.get(opts, :status, :all)
-    max = Keyword.get(opts, :limit, 50)
-
+  @spec list_active_orders_for_merchant(String.t()) :: [Order.t()]
+  def list_active_orders_for_merchant(merchant_principal_id) do
     Order
-    |> filter_status(status)
-    |> order_by([o], desc: o.inserted_at)
-    |> limit(^max)
+    |> where([o], o.merchant_principal_id == ^merchant_principal_id)
+    |> where([o], o.status in [:pending, :assigned, :picked_up])
+    |> order_by([o], asc: o.inserted_at)
     |> Repo.all()
   end
 
-  @spec count_delivered_today() :: non_neg_integer()
-  def count_delivered_today do
-    start_of_today = DateTime.new!(Date.utc_today(), ~T[00:00:00.000000])
+  @spec list_orders(order_filter()) :: order_page()
+  def list_orders(opts \\ []) do
+    size = Keyword.get(opts, :limit) || @default_page_size
+
+    {page, rest} =
+      Order
+      |> filter_status(Keyword.get(opts, :status, :all))
+      |> filter_before(Keyword.get(opts, :before))
+      |> order_by([o], desc: o.id)
+      |> limit(^(size + 1))
+      |> Repo.all()
+      |> Enum.split(size)
+
+    %{orders: page, next_cursor: next_cursor(page, rest)}
+  end
+
+  @spec count_delivered_today(DateTime.t()) :: non_neg_integer()
+  def count_delivered_today(now \\ DateTime.utc_now()) do
+    start_of_today = PlatformTimeZone.start_of_day(now)
 
     Order
-    |> where([o], o.status == :delivered and o.updated_at >= ^start_of_today)
+    |> where([o], o.status == :delivered and o.delivered_at >= ^start_of_today)
     |> Repo.aggregate(:count)
   end
 
@@ -219,17 +254,32 @@ defmodule FleetPulse.Dispatch do
   end
 
   @spec assign_order_to_driver(Types.id(), Types.id()) ::
-          {:ok, Order.t()} | {:error, assign_error() | :unavailable | Order.changeset()}
+          {:ok, Order.t()} | {:error, manual_assign_error() | Order.changeset()}
   def assign_order_to_driver(order_id, driver_id) do
     result =
       with {:ok, order} <- fetch_order(order_id),
            :ok <- ensure_pending(order),
-           {:ok, driver_state} <- DriverState.claim(driver_id) do
+           :ok <- ensure_known_driver(driver_id),
+           {:ok, driver_state} <- claim_chosen(driver_id) do
         persist_assignment(order, driver_state)
       end
 
     :ok = emit_assign_telemetry(result)
     result
+  end
+
+  @spec unassign_order(Types.id(), String.t()) :: {:ok, Order.t()} | {:error, unassign_error()}
+  def unassign_order(order_id, unassigned_by) do
+    fn ->
+      with {:ok, order} <- lock_order(order_id),
+           {:ok, driver_id} <- ensure_assigned(order),
+           {:ok, _record} <- Repo.insert(Unassignment.changeset(order, driver_id, unassigned_by)),
+           {:ok, pending} <- return_to_pending(order) do
+        {:ok, {pending, driver_id}}
+      end
+    end
+    |> Repo.transact()
+    |> announce_unassignment()
   end
 
   @spec pod_upload(Types.id(), Types.id(), term()) ::
@@ -265,48 +315,158 @@ defmodule FleetPulse.Dispatch do
 
   @spec mark_picked_up(Types.id(), Types.id()) :: {:ok, Order.t()} | {:error, transition_error()}
   def mark_picked_up(order_id, driver_id) do
-    transition_by_driver(order_id, driver_id, :picked_up)
+    fn ->
+      with {:ok, order} <- lock_order(order_id),
+           :ok <- ensure_owner(order, driver_id) do
+        advance(order, :picked_up)
+      end
+    end
+    |> Repo.transact()
+    |> announce_transition()
   end
 
   @spec mark_delivered(Types.id(), Types.id(), map()) ::
           {:ok, Order.t()} | {:error, transition_error()}
   def mark_delivered(order_id, driver_id, pod_attrs \\ %{}) do
-    case transition_by_driver(order_id, driver_id, :delivered, pod_attrs) do
-      {:ok, %Order{order_number: nil} = order} ->
-        {:ok, order}
-
-      {:ok, order} ->
-        {_outcome, reported} = DeliveryReport.attempt(order)
-        {:ok, reported}
-
-      {:error, reason} ->
-        {:error, reason}
+    with {:ok, order} <- fetch_order(order_id),
+         :ok <- ensure_owner(order, driver_id) do
+      deliver(order, pod_attrs)
     end
   end
 
-  @spec cancel_order(Types.id()) :: {:ok, Order.t()} | {:error, :not_found | :invalid_transition}
+  @spec cancel_order(Types.id()) :: {:ok, Order.t()} | {:error, cancel_error()}
   def cancel_order(order_id) do
-    with {:ok, order} <- fetch_order(order_id) do
-      transition(order, :cancelled)
+    fn ->
+      with {:ok, order} <- lock_order(order_id),
+           :ok <- ensure_unbound(order) do
+        advance(order, :cancelled)
+      end
     end
+    |> Repo.transact()
+    |> announce_transition()
   end
 
   @spec ensure_picked_up(Order.t()) :: :ok | {:error, :invalid_transition}
   defp ensure_picked_up(%Order{status: :picked_up}), do: :ok
   defp ensure_picked_up(%Order{}), do: {:error, :invalid_transition}
 
+  @spec ensure_unbound(Order.t()) :: :ok | {:error, :bound_to_order}
+  defp ensure_unbound(%Order{order_number: nil}), do: :ok
+  defp ensure_unbound(%Order{}), do: {:error, :bound_to_order}
+
+  @spec ensure_assigned(Order.t()) ::
+          {:ok, Types.id()} | {:error, :not_assigned | :invalid_transition}
+  defp ensure_assigned(%Order{status: :assigned, driver_id: driver_id})
+       when is_integer(driver_id),
+       do: {:ok, driver_id}
+
+  defp ensure_assigned(%Order{status: :pending}), do: {:error, :not_assigned}
+  defp ensure_assigned(%Order{}), do: {:error, :invalid_transition}
+
+  @spec return_to_pending(Order.t()) :: {:ok, Order.t()} | {:error, Order.changeset()}
+  defp return_to_pending(order) do
+    order
+    |> Ecto.Changeset.change(status: :pending, driver_id: nil, assigned_at: nil)
+    |> Repo.update()
+  end
+
+  @spec announce_unassignment({:ok, {Order.t(), Types.id()}} | {:error, unassign_error()}) ::
+          {:ok, Order.t()} | {:error, unassign_error()}
+  defp announce_unassignment({:ok, {order, driver_id}}) do
+    _ = DriverState.release(driver_id)
+    :ok = Events.broadcast(driver_id, {:order_unassigned, order})
+    :ok = Events.broadcast_order(order)
+
+    :telemetry.execute([:fleet_pulse, :dispatch, :order_unassigned], %{count: 1}, %{
+      order_id: order.id,
+      driver_id: driver_id
+    })
+
+    {:ok, order}
+  end
+
+  defp announce_unassignment({:error, reason}), do: {:error, reason}
+
+  @spec deliver(Order.t(), map()) :: {:ok, Order.t()} | {:error, transition_error()}
+  defp deliver(%Order{status: :delivered} = order, _pod_attrs), do: {:ok, order}
+
+  defp deliver(%Order{status: :picked_up} = order, pod_attrs) do
+    with {:ok, signature} <- Proof.signature_sha256(pod_attrs),
+         {:ok, photo} <- verify_photo(order, pod_attrs),
+         {:ok, principal} <- delivering_principal(order) do
+      proof = %{principal: principal, photo: photo, signature: signature}
+
+      fn -> record_delivery(order, pod_attrs, proof) end
+      |> Repo.transact()
+      |> announce_transition()
+    end
+  end
+
+  defp deliver(%Order{}, _pod_attrs), do: {:error, :invalid_transition}
+
+  @spec record_delivery(Order.t(), map(), proof()) ::
+          {:ok, {Order.t(), outcome()}} | {:error, transition_error() | Ecto.Changeset.t()}
+  defp record_delivery(order, pod_attrs, proof) do
+    with {:ok, locked} <- lock_order(order.id),
+         :ok <- ensure_owner(locked, order.driver_id) do
+      write_delivery(locked, pod_attrs, proof)
+    end
+  end
+
+  @spec write_delivery(Order.t(), map(), proof()) ::
+          {:ok, {Order.t(), outcome()}} | {:error, :invalid_transition | Ecto.Changeset.t()}
+  defp write_delivery(%Order{status: :delivered} = order, _pod_attrs, _proof),
+    do: {:ok, {order, :repeated}}
+
+  defp write_delivery(%Order{status: :picked_up} = order, pod_attrs, proof) do
+    delivered_at = DateTime.utc_now()
+
+    evidence =
+      DeliveryEvidence.changeset(
+        order,
+        proof.principal,
+        proof.photo,
+        proof.signature,
+        delivered_at
+      )
+
+    with {:ok, _evidence} <- Repo.insert(evidence),
+         {:ok, delivered} <- delivered(order, pod_attrs, delivered_at) do
+      {:ok, {delivered, :changed}}
+    end
+  end
+
+  defp write_delivery(%Order{}, _pod_attrs, _proof), do: {:error, :invalid_transition}
+
+  @spec delivered(Order.t(), map(), DateTime.t()) ::
+          {:ok, Order.t()} | {:error, Order.changeset()}
+  defp delivered(order, pod_attrs, delivered_at) do
+    order
+    |> Order.delivery_changeset(pod_attrs, delivered_at)
+    |> Ecto.Changeset.put_change(:status, :delivered)
+    |> Repo.update()
+  end
+
   @spec verify_photo(Order.t(), map()) ::
           {:ok, Proof.digest()} | {:error, :invalid_proof | :proof_unverifiable}
   defp verify_photo(order, %{"pod_photo_url" => url}) when is_binary(url) do
     with {:ok, key} <- Storage.key_of(url),
          {:ok, named} <- Proof.photo_named(key, order.id) do
-      stored_as_named(Storage.checksum(key), named)
+      stored_photo(key, named)
     else
       :error -> {:error, :invalid_proof}
     end
   end
 
   defp verify_photo(_order, _attrs), do: {:error, :invalid_proof}
+
+  @spec stored_photo(String.t(), Proof.digest()) ::
+          {:ok, Proof.digest()} | {:error, :invalid_proof | :proof_unverifiable}
+  defp stored_photo(key, named) do
+    with {:ok, digest} <- stored_as_named(Storage.checksum(key), named) do
+      stored_as_jpeg(Storage.leading_bytes(key, Proof.jpeg_magic_size()), digest)
+    end
+  end
 
   @spec stored_as_named(
           {:ok, Storage.checksum()} | {:error, :unavailable},
@@ -315,6 +475,15 @@ defmodule FleetPulse.Dispatch do
   defp stored_as_named({:ok, {:sha256, named}}, named), do: {:ok, named}
   defp stored_as_named({:ok, _absent_or_other_bytes}, _named), do: {:error, :invalid_proof}
   defp stored_as_named({:error, :unavailable}, _named), do: {:error, :proof_unverifiable}
+
+  @spec stored_as_jpeg({:ok, binary() | :absent} | {:error, :unavailable}, Proof.digest()) ::
+          {:ok, Proof.digest()} | {:error, :invalid_proof | :proof_unverifiable}
+  defp stored_as_jpeg({:ok, leading}, digest) when is_binary(leading) do
+    if Proof.jpeg?(leading), do: {:ok, digest}, else: {:error, :invalid_proof}
+  end
+
+  defp stored_as_jpeg({:ok, :absent}, _digest), do: {:error, :invalid_proof}
+  defp stored_as_jpeg({:error, :unavailable}, _digest), do: {:error, :proof_unverifiable}
 
   @spec delivering_principal(Order.t()) :: {:ok, String.t()} | {:error, :unlinked}
   defp delivering_principal(%Order{driver_id: driver_id}) do
@@ -331,6 +500,24 @@ defmodule FleetPulse.Dispatch do
   defp ensure_pending(%Order{status: :pending}), do: :ok
   defp ensure_pending(%Order{}), do: {:error, :already_assigned}
 
+  @spec ensure_known_driver(Types.id()) :: :ok | {:error, :driver_not_found}
+  defp ensure_known_driver(driver_id) do
+    case Tracking.fetch_driver(driver_id) do
+      {:ok, _driver} -> :ok
+      {:error, :not_found} -> {:error, :driver_not_found}
+    end
+  end
+
+  @spec claim_chosen(Types.id()) ::
+          {:ok, DriverState.t()} | {:error, :driver_not_tracked | :driver_unavailable}
+  defp claim_chosen(driver_id) do
+    case DriverState.claim(driver_id) do
+      {:ok, claimed} -> {:ok, claimed}
+      {:error, :not_found} -> {:error, :driver_not_tracked}
+      {:error, :unavailable} -> {:error, :driver_unavailable}
+    end
+  end
+
   @spec claim_nearest(Order.t(), float()) ::
           {:ok, DriverState.t()} | {:error, :no_driver_available}
   defp claim_nearest(order, radius_km) do
@@ -341,13 +528,21 @@ defmodule FleetPulse.Dispatch do
 
   @spec eligible_drivers(Order.t(), float()) :: [DriverState.t()]
   defp eligible_drivers(order, radius_km) do
-    Tracking.nearby(
-      {order.pickup_latitude, order.pickup_longitude},
-      radius_km,
-      status: :online,
-      min_capacity_kg: order.weight_kg
-    )
+    taken_off = drivers_taken_off(order.id)
+
+    {order.pickup_latitude, order.pickup_longitude}
+    |> Tracking.nearby(radius_km, status: :online, min_capacity_kg: order.weight_kg, fresh: true)
     |> Enum.map(fn {state, _distance} -> state end)
+    |> Enum.reject(&MapSet.member?(taken_off, &1.driver_id))
+  end
+
+  @spec drivers_taken_off(Types.id()) :: MapSet.t(Types.id())
+  defp drivers_taken_off(order_id) do
+    Unassignment
+    |> where([u], u.order_id == ^order_id)
+    |> select([u], u.driver_id)
+    |> Repo.all()
+    |> MapSet.new()
   end
 
   @spec first_successful_claim([DriverState.t()]) ::
@@ -362,48 +557,53 @@ defmodule FleetPulse.Dispatch do
   end
 
   @spec persist_assignment(Order.t(), DriverState.t()) ::
-          {:ok, Order.t()} | {:error, Order.changeset()}
+          {:ok, Order.t()} | {:error, :not_found | :already_assigned | Order.changeset()}
   defp persist_assignment(order, driver_state) do
-    order
-    |> Ecto.Changeset.change(
-      status: :assigned,
-      driver_id: driver_state.driver_id,
-      assigned_at: DateTime.utc_now()
-    )
-    |> Repo.update()
+    fn ->
+      with {:ok, locked} <- lock_order(order.id),
+           :ok <- ensure_pending(locked) do
+        locked
+        |> Ecto.Changeset.change(
+          status: :assigned,
+          driver_id: driver_state.driver_id,
+          assigned_at: DateTime.utc_now()
+        )
+        |> Repo.update()
+      end
+    end
+    |> Repo.transact()
     |> release_on_failure(driver_state.driver_id)
     |> broadcast_on_success(driver_state.driver_id)
   end
 
-  @spec broadcast_on_success(
-          {:ok, Order.t()} | {:error, Order.changeset()},
-          Types.id()
-        ) :: {:ok, Order.t()} | {:error, Order.changeset()}
+  @spec broadcast_on_success({:ok, Order.t()} | {:error, term()}, Types.id()) ::
+          {:ok, Order.t()} | {:error, term()}
   defp broadcast_on_success({:ok, order} = ok, driver_id) do
     :ok = Events.broadcast(driver_id, {:order_assigned, order})
     :ok = Events.broadcast_order(order)
     ok
   end
 
-  defp broadcast_on_success({:error, _changeset} = error, _driver_id), do: error
+  defp broadcast_on_success({:error, _reason} = error, _driver_id), do: error
 
-  @spec release_on_failure(
-          {:ok, Order.t()} | {:error, Order.changeset()},
-          Types.id()
-        ) :: {:ok, Order.t()} | {:error, Order.changeset()}
+  @spec release_on_failure({:ok, Order.t()} | {:error, term()}, Types.id()) ::
+          {:ok, Order.t()} | {:error, term()}
   defp release_on_failure({:ok, _order} = ok, _driver_id), do: ok
 
-  defp release_on_failure({:error, _changeset} = error, driver_id) do
+  defp release_on_failure({:error, _reason} = error, driver_id) do
     _ = DriverState.release(driver_id)
     error
   end
 
-  @spec transition_by_driver(Types.id(), Types.id(), Order.status(), map()) ::
-          {:ok, Order.t()} | {:error, transition_error()}
-  defp transition_by_driver(order_id, driver_id, target, pod_attrs \\ %{}) do
-    with {:ok, order} <- fetch_order(order_id),
-         :ok <- ensure_owner(order, driver_id) do
-      transition(order, target, pod_attrs)
+  @spec lock_order(Types.id()) :: {:ok, Order.t()} | {:error, :not_found}
+  defp lock_order(order_id) do
+    Order
+    |> where([o], o.id == ^order_id)
+    |> lock("FOR UPDATE")
+    |> Repo.one()
+    |> case do
+      nil -> {:error, :not_found}
+      %Order{} = order -> {:ok, order}
     end
   end
 
@@ -411,10 +611,12 @@ defmodule FleetPulse.Dispatch do
   defp ensure_owner(%Order{driver_id: driver_id}, driver_id), do: :ok
   defp ensure_owner(%Order{}, _driver_id), do: {:error, :forbidden}
 
-  @spec transition(Order.t(), Order.status(), map()) ::
-          {:ok, Order.t()} | {:error, transition_error()}
-  defp transition(%Order{status: current} = order, target, pod_attrs \\ %{}) do
-    apply_transition(legal?(current, target), order, target, pod_attrs)
+  @spec advance(Order.t(), Order.status()) ::
+          {:ok, {Order.t(), outcome()}} | {:error, :invalid_transition | Order.changeset()}
+  defp advance(%Order{status: target} = order, target), do: {:ok, {order, :repeated}}
+
+  defp advance(%Order{status: current} = order, target) do
+    apply_transition(legal?(current, target), order, target)
   end
 
   @spec legal?(Order.status(), Order.status()) :: boolean()
@@ -422,52 +624,30 @@ defmodule FleetPulse.Dispatch do
     target in Map.get(@legal_transitions, current, [])
   end
 
-  @spec apply_transition(boolean(), Order.t(), Order.status(), map()) ::
-          {:ok, Order.t()} | {:error, transition_error()}
-  defp apply_transition(false, _order, _target, _pod_attrs), do: {:error, :invalid_transition}
+  @spec apply_transition(boolean(), Order.t(), Order.status()) ::
+          {:ok, {Order.t(), outcome()}} | {:error, :invalid_transition | Order.changeset()}
+  defp apply_transition(false, _order, _target), do: {:error, :invalid_transition}
 
-  defp apply_transition(true, order, :delivered, pod_attrs) do
-    with {:ok, photo} <- verify_photo(order, pod_attrs),
-         {:ok, signature} <- Proof.signature_sha256(pod_attrs),
-         {:ok, principal} <- delivering_principal(order) do
-      delivered_at = DateTime.utc_now()
-      evidence = DeliveryEvidence.changeset(order, principal, photo, signature, delivered_at)
-
-      Repo.transact(fn -> record_delivery(order, pod_attrs, evidence, delivered_at) end)
-      |> after_transition()
+  defp apply_transition(true, order, target) do
+    with {:ok, updated} <- order |> Ecto.Changeset.change(status: target) |> Repo.update() do
+      {:ok, {updated, :changed}}
     end
   end
 
-  defp apply_transition(true, order, target, pod_attrs) do
-    order
-    |> Order.pod_changeset(pod_attrs)
-    |> Ecto.Changeset.put_change(:status, target)
-    |> Repo.update()
-    |> after_transition()
-  end
+  @spec announce_transition({:ok, {Order.t(), outcome()}} | {:error, atom() | Ecto.Changeset.t()}) ::
+          {:ok, Order.t()} | {:error, atom()}
+  defp announce_transition({:ok, {order, :repeated}}), do: {:ok, order}
 
-  @spec record_delivery(Order.t(), map(), DeliveryEvidence.changeset(), DateTime.t()) ::
-          {:ok, Order.t()} | {:error, Ecto.Changeset.t()}
-  defp record_delivery(order, pod_attrs, evidence, delivered_at) do
-    with {:ok, _evidence} <- Repo.insert(evidence) do
-      order
-      |> Order.delivery_changeset(pod_attrs, delivered_at)
-      |> Ecto.Changeset.put_change(:status, :delivered)
-      |> Repo.update()
-    end
-  end
-
-  @spec after_transition({:ok, Order.t()} | {:error, Ecto.Changeset.t()}) ::
-          {:ok, Order.t()} | {:error, :invalid_transition | :invalid_proof}
-  defp after_transition({:ok, order}) do
+  defp announce_transition({:ok, {order, :changed}}) do
     :ok = release_if_terminal(order)
     :ok = broadcast_transition(order)
     :ok = Events.broadcast_order(order)
     :ok = emit_transition_telemetry(order)
+    :ok = report_if_delivered(order)
     {:ok, order}
   end
 
-  defp after_transition({:error, %Ecto.Changeset{errors: errors}}) do
+  defp announce_transition({:error, %Ecto.Changeset{errors: errors}}) do
     proof_fields = [:pod_photo_url, :pod_signature]
 
     if Enum.any?(errors, fn {field, _error} -> field in proof_fields end) do
@@ -477,6 +657,8 @@ defmodule FleetPulse.Dispatch do
     end
   end
 
+  defp announce_transition({:error, reason}) when is_atom(reason), do: {:error, reason}
+
   @spec release_if_terminal(Order.t()) :: :ok
   defp release_if_terminal(%Order{status: status, driver_id: driver_id})
        when status in [:delivered, :cancelled] and is_integer(driver_id) do
@@ -485,6 +667,13 @@ defmodule FleetPulse.Dispatch do
   end
 
   defp release_if_terminal(%Order{}), do: :ok
+
+  @spec report_if_delivered(Order.t()) :: :ok
+  defp report_if_delivered(%Order{status: :delivered, order_number: number})
+       when is_binary(number),
+       do: DeliveryReporter.kick()
+
+  defp report_if_delivered(%Order{}), do: :ok
 
   @spec broadcast_transition(Order.t()) :: :ok
   defp broadcast_transition(%Order{driver_id: driver_id} = order) when is_integer(driver_id) do
@@ -509,11 +698,7 @@ defmodule FleetPulse.Dispatch do
 
   defp announce_order({:error, _changeset} = error), do: error
 
-  @spec emit_assign_telemetry(
-          {:ok, Order.t()}
-          | {:error, assign_error() | :unavailable | Order.changeset()}
-        ) ::
-          :ok
+  @spec emit_assign_telemetry({:ok, Order.t()} | {:error, term()}) :: :ok
   defp emit_assign_telemetry({:ok, order}) do
     ms = DateTime.diff(order.assigned_at, order.inserted_at, :millisecond)
 
@@ -548,4 +733,12 @@ defmodule FleetPulse.Dispatch do
   @spec filter_status(Ecto.Queryable.t(), Order.status() | :all) :: Ecto.Queryable.t()
   defp filter_status(query, :all), do: query
   defp filter_status(query, status), do: where(query, [o], o.status == ^status)
+
+  @spec filter_before(Ecto.Queryable.t(), Types.id() | nil) :: Ecto.Queryable.t()
+  defp filter_before(query, nil), do: query
+  defp filter_before(query, before), do: where(query, [o], o.id < ^before)
+
+  @spec next_cursor([Order.t()], [Order.t()]) :: Types.id() | nil
+  defp next_cursor(_page, []), do: nil
+  defp next_cursor(page, _more), do: List.last(page).id
 end

@@ -22,15 +22,7 @@ defmodule FleetPulse.Clients.OrderGrpc do
   @spec delivered(String.t(), String.t(), DateTime.t()) ::
           :ok | {:error, FleetPulse.Clients.Order.error()}
   def delivered(order_number, driver_principal_id, delivered_at) do
-    case host() do
-      nil ->
-        Logger.error("[Order] ORDER_GRPC_HOST is unset; #{order_number} cannot be reported")
-        count("failed_precondition")
-        {:error, :not_configured}
-
-      host ->
-        dial(host, order_number, driver_principal_id, delivered_at)
-    end
+    dial(host(), order_number, driver_principal_id, delivered_at)
   end
 
   @spec dial(String.t(), String.t(), String.t(), DateTime.t()) ::
@@ -109,13 +101,11 @@ defmodule FleetPulse.Clients.OrderGrpc do
   def outcome_of(status) when status in @refusals, do: :refused
   def outcome_of(_status), do: :unavailable
 
-  @spec host() :: String.t() | nil
+  @spec host() :: String.t()
   defp host do
-    case System.get_env("ORDER_GRPC_HOST") do
-      nil -> nil
-      "" -> nil
-      value -> value
-    end
+    :fleet_pulse
+    |> Application.fetch_env!(__MODULE__)
+    |> Keyword.fetch!(:host)
   end
 
   @spec count(String.t()) :: :ok

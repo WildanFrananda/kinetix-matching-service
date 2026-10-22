@@ -1,7 +1,7 @@
 defmodule FleetPulse.Dispatch.Proof do
   @moduledoc """
-  What a proof of delivery is made of: a photo stored under its own SHA-256 in this job's folder,
-  and a signature drawn on the phone, sent as a PNG in a `data:` URI.
+  What a proof of delivery is made of: a JPEG photo stored under its own SHA-256 in this job's
+  folder, and a signature drawn on the phone, sent as a PNG in a `data:` URI. Both are required.
   """
 
   alias FleetPulse.Types
@@ -11,6 +11,7 @@ defmodule FleetPulse.Dispatch.Proof do
   @photo_key ~r|\Apod/(\d+)/([0-9a-f]{64})\.jpg\z|
   @signature_prefix "data:image/png;base64,"
   @png_magic <<0x89, ?P, ?N, ?G, 0x0D, 0x0A, 0x1A, 0x0A>>
+  @jpeg_magic <<0xFF, 0xD8, 0xFF>>
 
   @spec parse_sha256(term()) :: {:ok, digest()} | {:error, :invalid_photo_hash}
   def parse_sha256(hex) when is_binary(hex) and byte_size(hex) == 64 do
@@ -37,10 +38,18 @@ defmodule FleetPulse.Dispatch.Proof do
     end
   end
 
+  @spec jpeg_magic_size() :: pos_integer()
+  def jpeg_magic_size, do: byte_size(@jpeg_magic)
+
+  @spec jpeg?(binary()) :: boolean()
+  def jpeg?(@jpeg_magic <> _image), do: true
+  def jpeg?(_other), do: false
+
   @spec signature_reference?(String.t()) :: boolean()
   def signature_reference?(value), do: String.starts_with?(value, @signature_prefix)
 
-  @spec signature_sha256(map()) :: {:ok, digest() | nil} | {:error, :invalid_proof}
+  @spec signature_sha256(map()) ::
+          {:ok, digest()} | {:error, :invalid_proof | :signature_required}
   def signature_sha256(%{"pod_signature" => @signature_prefix <> encoded}) do
     case Base.decode64(encoded) do
       {:ok, @png_magic <> _image = png} -> {:ok, :crypto.hash(:sha256, png)}
@@ -48,7 +57,9 @@ defmodule FleetPulse.Dispatch.Proof do
     end
   end
 
-  def signature_sha256(%{"pod_signature" => nil}), do: {:ok, nil}
-  def signature_sha256(%{"pod_signature" => _other}), do: {:error, :invalid_proof}
-  def signature_sha256(_unsigned), do: {:ok, nil}
+  def signature_sha256(%{"pod_signature" => signature})
+      when is_binary(signature) and signature != "",
+      do: {:error, :invalid_proof}
+
+  def signature_sha256(_unsigned), do: {:error, :signature_required}
 end

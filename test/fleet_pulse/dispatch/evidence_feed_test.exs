@@ -220,7 +220,12 @@ defmodule FleetPulse.Dispatch.EvidenceFeedTest do
     on_exit(fn -> ScratchDatabase.stop!(database) end)
     ScratchDatabase.use!(database)
 
-    _ = Ecto.Migrator.run(Repo, :down, step: 1, dynamic_repo: database.repo, log: false)
+    _ =
+      Ecto.Migrator.run(Repo, :down,
+        to: 20_261_016_160_000,
+        dynamic_repo: database.repo,
+        log: false
+      )
 
     assert %{rows: [[nil]]} = Repo.query!("SELECT to_regclass('delivery_evidence')::text")
 

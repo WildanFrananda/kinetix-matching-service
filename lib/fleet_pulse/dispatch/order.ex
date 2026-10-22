@@ -123,14 +123,14 @@ defmodule FleetPulse.Dispatch.Order do
   def delivery_changeset(%__MODULE__{} = order, attrs, delivered_at) do
     order
     |> pod_changeset(attrs)
-    |> validate_required([:pod_photo_url])
+    |> validate_required([:pod_photo_url, :pod_signature])
     |> put_change(:delivered_at, delivered_at)
     |> put_change(:delivery_report_next_at, report_due_at(order, delivered_at))
   end
 
   @spec report_due_at(t(), DateTime.t()) :: DateTime.t() | nil
   defp report_due_at(%__MODULE__{order_number: nil}, _delivered_at), do: nil
-  defp report_due_at(%__MODULE__{}, delivered_at), do: DateTime.add(delivered_at, 60, :second)
+  defp report_due_at(%__MODULE__{}, delivered_at), do: delivered_at
 
   @spec validate_photo_reference(atom(), String.t()) :: [{atom(), String.t()}]
   defp validate_photo_reference(field, value) do

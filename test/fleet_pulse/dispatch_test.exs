@@ -7,9 +7,11 @@ defmodule FleetPulse.DispatchTest do
   alias FleetPulse.Dispatch
   alias FleetPulse.Dispatch.Events
   alias FleetPulse.Dispatch.Order
+  alias FleetPulse.Dispatch.Unassignment
   alias FleetPulse.FakeStorage
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.DriverRegistry
+  alias FleetPulse.Tracking.LocationPing
   alias FleetPulse.Tracking.StateCache
 
   @pickup {-6.1754, 106.8272}
@@ -198,9 +200,11 @@ defmodule FleetPulse.DispatchTest do
       {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
 
       assert {:error, :invalid_proof} =
-               Dispatch.mark_delivered(order.id, driver.id, %{
-                 "pod_photo_url" => "the parcel was left by the gate"
-               })
+               Dispatch.mark_delivered(
+                 order.id,
+                 driver.id,
+                 signed(%{"pod_photo_url" => "the parcel was left by the gate"})
+               )
 
       assert {:ok, %{status: :picked_up, pod_photo_url: nil}} = Dispatch.fetch_order(order.id)
     end
@@ -247,7 +251,7 @@ defmodule FleetPulse.DispatchTest do
       url = photo_url_for(order.id, photo_bytes())
 
       assert {:error, :invalid_proof} =
-               Dispatch.mark_delivered(order.id, driver.id, %{"pod_photo_url" => url})
+               Dispatch.mark_delivered(order.id, driver.id, signed(%{"pod_photo_url" => url}))
     end
 
     test "refuses a photo whose stored bytes are not the ones its name says" do
@@ -258,7 +262,7 @@ defmodule FleetPulse.DispatchTest do
       :ok = FakeStorage.uploaded(url, photo_bytes())
 
       assert {:error, :invalid_proof} =
-               Dispatch.mark_delivered(order.id, driver.id, %{"pod_photo_url" => url})
+               Dispatch.mark_delivered(order.id, driver.id, signed(%{"pod_photo_url" => url}))
 
       assert {:ok, %{status: :picked_up}} = Dispatch.fetch_order(order.id)
     end
@@ -271,7 +275,7 @@ defmodule FleetPulse.DispatchTest do
       :ok = FakeStorage.uploaded_without_checksum(url)
 
       assert {:error, :invalid_proof} =
-               Dispatch.mark_delivered(order.id, driver.id, %{"pod_photo_url" => url})
+               Dispatch.mark_delivered(order.id, driver.id, signed(%{"pod_photo_url" => url}))
     end
 
     test "refuses a photo under a name that is not a SHA-256" do
@@ -282,7 +286,7 @@ defmodule FleetPulse.DispatchTest do
       :ok = FakeStorage.uploaded(url, photo_bytes())
 
       assert {:error, :invalid_proof} =
-               Dispatch.mark_delivered(order.id, driver.id, %{"pod_photo_url" => url})
+               Dispatch.mark_delivered(order.id, driver.id, signed(%{"pod_photo_url" => url}))
     end
 
     test "hands the courier carrying the job an upload address bound to the photo's SHA-256" do
@@ -336,7 +340,11 @@ defmodule FleetPulse.DispatchTest do
       too_long = "https://storage.luxe.id/pod/" <> String.duplicate("a", 2_048) <> ".jpg"
 
       assert {:error, :invalid_proof} =
-               Dispatch.mark_delivered(order.id, driver.id, %{"pod_photo_url" => too_long})
+               Dispatch.mark_delivered(
+                 order.id,
+                 driver.id,
+                 signed(%{"pod_photo_url" => too_long})
+               )
     end
 
     test "an illegal transition still reads as an illegal transition" do
@@ -492,11 +500,11 @@ defmodule FleetPulse.DispatchTest do
       {:ok, _} = Dispatch.mark_delivered(delivered.id, driver.id, proof_for(delivered.id))
       {:ok, pending} = Dispatch.create_order(order_attrs())
 
-      delivered_ids = Enum.map(Dispatch.list_orders(status: :delivered), & &1.id)
+      delivered_ids = Enum.map(Dispatch.list_orders(status: :delivered).orders, & &1.id)
       assert delivered.id in delivered_ids
       refute pending.id in delivered_ids
 
-      all_ids = Enum.map(Dispatch.list_orders(status: :all), & &1.id)
+      all_ids = Enum.map(Dispatch.list_orders(status: :all).orders, & &1.id)
       assert pending.id in all_ids
       assert delivered.id in all_ids
     end
@@ -518,7 +526,312 @@ defmodule FleetPulse.DispatchTest do
       {:ok, _} = Dispatch.assign_order_to_driver(first.id, driver.id)
 
       {:ok, second} = Dispatch.create_order(order_attrs())
-      assert {:error, :unavailable} = Dispatch.assign_order_to_driver(second.id, driver.id)
+
+      assert {:error, :driver_unavailable} =
+               Dispatch.assign_order_to_driver(second.id, driver.id)
+    end
+
+    test "says a driver who does not exist is not found, apart from a job that is not" do
+      {:ok, order} = Dispatch.create_order(order_attrs())
+
+      assert {:error, :driver_not_found} = Dispatch.assign_order_to_driver(order.id, 999_999_999)
+      assert {:error, :not_found} = Dispatch.assign_order_to_driver(999_999_999, 999_999_999)
+    end
+
+    test "says a driver who exists but is not connected is not tracked" do
+      driver = driver_fixture()
+      {:ok, order} = Dispatch.create_order(order_attrs())
+
+      assert {:error, :driver_not_tracked} = Dispatch.assign_order_to_driver(order.id, driver.id)
+    end
+  end
+
+  describe "list_orders/1 paging" do
+    test "pages newest first, and the cursor leads to the next page and no further" do
+      orders = for _ <- 1..5, do: order!()
+      ids = orders |> Enum.map(& &1.id) |> Enum.sort(:desc)
+      newest = hd(ids)
+
+      first = Dispatch.list_orders(limit: 2, before: newest + 1)
+      assert Enum.map(first.orders, & &1.id) == Enum.take(ids, 2)
+      assert first.next_cursor == Enum.at(ids, 1)
+
+      second = Dispatch.list_orders(limit: 2, before: first.next_cursor)
+      assert Enum.map(second.orders, & &1.id) == Enum.slice(ids, 2, 2)
+
+      last = Dispatch.list_orders(limit: 2, before: Enum.at(ids, 3))
+      assert Enum.map(last.orders, & &1.id) |> Enum.take(1) == [Enum.at(ids, 4)]
+    end
+
+    test "has no next page when everything fits" do
+      order = order!()
+
+      page = Dispatch.list_orders(limit: 200, before: order.id + 1)
+
+      assert order.id in Enum.map(page.orders, & &1.id)
+      assert page.next_cursor == nil
+    end
+  end
+
+  describe "count_delivered_today/0 by delivery time" do
+    test "a job delivered yesterday is not counted because its row was touched today" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id, proof_for(order.id))
+      before = Dispatch.count_delivered_today()
+
+      yesterday = DateTime.add(DateTime.utc_now(), -2, :day)
+
+      Order
+      |> Ecto.Query.where([o], o.id == ^order.id)
+      |> Repo.update_all(set: [delivered_at: yesterday, updated_at: DateTime.utc_now()])
+
+      assert Dispatch.count_delivered_today() == before - 1
+    end
+  end
+
+  describe "count_delivered_today/1 on the platform's clock" do
+    defp delivered_at!(at) do
+      order = assigned_order!()
+      {:ok, _} = Dispatch.mark_picked_up(order.id, order.driver_id)
+      {:ok, _} = Dispatch.mark_delivered(order.id, order.driver_id, proof_for(order.id))
+
+      Order
+      |> where([o], o.id == ^order.id)
+      |> Repo.update_all(set: [delivered_at: at])
+
+      order
+    end
+
+    test "the day begins at midnight in Jakarta, seven hours before UTC's" do
+      online_driver(0.5, 100)
+      _late_on_the_20th = delivered_at!(~U[2026-10-20 16:30:00.000000Z])
+      _early_on_the_21st = delivered_at!(~U[2026-10-20 17:30:00.000000Z])
+
+      assert Dispatch.count_delivered_today(~U[2026-10-21 03:00:00.000000Z]) == 1
+      assert Dispatch.count_delivered_today(~U[2026-10-20 17:00:00.000000Z]) == 1
+      assert Dispatch.count_delivered_today(~U[2026-10-20 16:59:59.000000Z]) == 2
+    end
+  end
+
+  describe "proof of delivery" do
+    test "refuses a delivery without the customer's signature" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+      unsigned = Map.delete(proof_for(order.id), "pod_signature")
+
+      assert {:error, :signature_required} =
+               Dispatch.mark_delivered(order.id, driver.id, unsigned)
+
+      assert {:error, :signature_required} =
+               Dispatch.mark_delivered(
+                 order.id,
+                 driver.id,
+                 Map.put(unsigned, "pod_signature", nil)
+               )
+
+      assert {:ok, %{status: :picked_up}} = Dispatch.fetch_order(order.id)
+    end
+
+    test "refuses a photo whose bytes are not a JPEG" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+      png = signature_png()
+      url = photo_url_for(order.id, png)
+      :ok = FakeStorage.uploaded(url, png)
+
+      assert {:error, :invalid_proof} =
+               Dispatch.mark_delivered(order.id, driver.id, signed(%{"pod_photo_url" => url}))
+
+      assert {:ok, %{status: :picked_up}} = Dispatch.fetch_order(order.id)
+    end
+  end
+
+  describe "a repeated step by the courier who made it" do
+    test "a repeated pickup answers what the first did and changes nothing" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      :ok = Events.subscribe_driver(driver.id)
+
+      assert {:ok, %{status: :picked_up}} = Dispatch.mark_picked_up(order.id, driver.id)
+      assert_receive {:order_updated, %Order{status: :picked_up}}
+
+      assert {:ok, %{status: :picked_up}} = Dispatch.mark_picked_up(order.id, driver.id)
+      refute_receive {:order_updated, _order}, 50
+    end
+
+    test "a repeated delivery answers success and frees the courier once" do
+      driver = online_driver(0.5, 100)
+      {:ok, pid} = DriverRegistry.whereis(driver.id)
+      :sys.replace_state(pid, fn state -> %{state | max_orders: 2} end)
+
+      first = assigned_order!()
+      second = assigned_order!()
+      assert second.driver_id == driver.id
+
+      {:ok, _} = Dispatch.mark_picked_up(first.id, driver.id)
+      proof = proof_for(first.id)
+
+      assert {:ok, %{status: :delivered}} = Dispatch.mark_delivered(first.id, driver.id, proof)
+      assert {:ok, %{status: :delivered}} = Dispatch.mark_delivered(first.id, driver.id, proof)
+      assert {:ok, %{status: :delivered}} = Dispatch.mark_delivered(first.id, driver.id, %{})
+
+      assert {:ok, %{active_orders_count: 1}} = Tracking.fetch_state(driver.id)
+    end
+
+    test "another courier repeating it is still refused" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id, proof_for(order.id))
+
+      assert {:error, :forbidden} = Dispatch.mark_picked_up(order.id, driver.id + 1_000)
+      assert {:error, :forbidden} = Dispatch.mark_delivered(order.id, driver.id + 1_000, %{})
+    end
+  end
+
+  describe "unassign_order/2" do
+    test "returns an assigned job to pending, frees the courier and records who did it" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      :ok = Events.subscribe_driver(driver.id)
+
+      assert {:ok, pending} = Dispatch.unassign_order(order.id, "admin-principal")
+      assert pending.status == :pending
+      assert pending.driver_id == nil
+      assert pending.assigned_at == nil
+
+      assert_receive {:order_unassigned, %Order{id: id}}
+      assert id == order.id
+      assert {:ok, %{status: :online, active_orders_count: 0}} = Tracking.fetch_state(driver.id)
+
+      assert [%Unassignment{driver_id: taken_from, unassigned_by: "admin-principal"}] =
+               Repo.all(Unassignment)
+
+      assert taken_from == driver.id
+    end
+
+    test "offers the job again, but not to the courier it was taken from" do
+      first = online_driver(0.5, 100)
+      order = assigned_order!()
+      assert order.driver_id == first.id
+
+      {:ok, _} = Dispatch.unassign_order(order.id, "admin-principal")
+      assert {:error, :no_driver_available} = Dispatch.assign_order(order.id)
+
+      second = online_driver(1.0, 100)
+      assert {:ok, reassigned} = Dispatch.assign_order(order.id)
+      assert reassigned.driver_id == second.id
+    end
+
+    test "an administrator may still hand it back to that courier by name" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      {:ok, _} = Dispatch.unassign_order(order.id, "admin-principal")
+
+      assert {:ok, %{driver_id: id}} = Dispatch.assign_order_to_driver(order.id, driver.id)
+      assert id == driver.id
+    end
+
+    test "order asking again for the job is offered a courier, not told it is finished" do
+      online_driver(0.5, 100)
+      number = "ORD-#{System.unique_integer([:positive])}"
+      pickup = {elem(@pickup, 0), elem(@pickup, 1)}
+
+      {:ok, order} = Dispatch.dispatch_for_order(number, "merchant-1", pickup, {-6.9, 107.6}, 0)
+      {:ok, _} = Dispatch.unassign_order(order.id, "admin-principal")
+
+      assert {:error, :no_driver_available} =
+               Dispatch.dispatch_for_order(number, "merchant-1", pickup, {-6.9, 107.6}, 0)
+    end
+
+    test "refuses a job whose parcel the courier already holds" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+
+      assert {:error, :invalid_transition} = Dispatch.unassign_order(order.id, "admin-principal")
+      assert {:ok, %{status: :picked_up, driver_id: id}} = Dispatch.fetch_order(order.id)
+      assert id == driver.id
+    end
+
+    test "refuses a job nobody carries, and one that does not exist" do
+      order = order!()
+
+      assert {:error, :not_assigned} = Dispatch.unassign_order(order.id, "admin-principal")
+      assert {:error, :not_found} = Dispatch.unassign_order(999_999_999, "admin-principal")
+    end
+  end
+
+  describe "cancel_order/1 limits" do
+    test "refuses to cancel a parcel the courier already holds" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+
+      assert {:error, :invalid_transition} = Dispatch.cancel_order(order.id)
+      assert {:ok, %{status: :picked_up}} = Dispatch.fetch_order(order.id)
+    end
+
+    test "refuses to cancel a job that delivers a platform order, which order would never hear of" do
+      online_driver(0.5, 100)
+      number = "ORD-#{System.unique_integer([:positive])}"
+
+      {:ok, order} =
+        Dispatch.dispatch_for_order(number, "merchant-1", @pickup, {-6.9, 107.6}, 0)
+
+      assert {:error, :bound_to_order} = Dispatch.cancel_order(order.id)
+      assert {:ok, %{status: :assigned}} = Dispatch.fetch_order(order.id)
+    end
+  end
+
+  describe "dispatch uses only positions sent while on duty" do
+    test "a driver whose position came before going on duty is not dispatched until it pings" do
+      {lat, lng} = north(@pickup, 0.5)
+      driver = driver_fixture(%{capacity_kg: 100})
+      on_exit(fn -> cleanup(driver.id) end)
+
+      {:ok, _pid} = Tracking.start_tracking(driver.id)
+      :ok = Tracking.track_location(driver.id, telemetry_attrs(%{latitude: lat, longitude: lng}))
+      {:ok, _} = Tracking.set_status(driver.id, :online)
+      order = order!()
+
+      assert {:error, :no_driver_available} = Dispatch.assign_order(order.id)
+
+      later = DateTime.add(DateTime.utc_now(), 1, :second)
+
+      :ok =
+        Tracking.track_location(
+          driver.id,
+          telemetry_attrs(%{latitude: lat, longitude: lng, recorded_at: later})
+        )
+
+      {:ok, _} = Tracking.fetch_state(driver.id)
+      assert {:ok, %{driver_id: id}} = Dispatch.assign_order(order.id)
+      assert id == driver.id
+    end
+
+    test "a position kept from before a cold restart is shown but not dispatched" do
+      driver = online_driver(0.5, 100)
+      {:ok, state} = Tracking.fetch_state(driver.id)
+
+      Repo.insert!(%LocationPing{
+        driver_id: driver.id,
+        latitude: elem(state.coordinates, 0),
+        longitude: elem(state.coordinates, 1),
+        recorded_at: state.recorded_at,
+        inserted_at: DateTime.utc_now()
+      })
+
+      :ok = Tracking.stop_tracking(driver.id)
+      {:ok, _pid} = Tracking.start_tracking(driver.id)
+      {:ok, _} = Tracking.set_status(driver.id, :online)
+
+      assert {:ok, %{coordinates: {_lat, _lng}}} = Tracking.fetch_state(driver.id)
+      assert {:error, :no_driver_available} = Dispatch.assign_order(order!().id)
     end
   end
 

@@ -40,6 +40,7 @@ defmodule FleetPulseWeb.Router do
     get "/dispatches/summary", DispatchController, :summary
     get "/dispatches/:id", DispatchController, :show
     post "/dispatches/:id/assign", DispatchController, :assign
+    post "/dispatches/:id/unassign", DispatchController, :unassign
     post "/dispatches/:id/cancel", DispatchController, :cancel
     get "/drivers/:driver_id/dispatches", DispatchController, :for_driver
   end

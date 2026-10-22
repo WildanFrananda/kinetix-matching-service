@@ -9,6 +9,7 @@ defmodule FleetPulse.Tracking do
   alias FleetPulse.Tracking.DriverSupervisor
   alias FleetPulse.Tracking.Events
   alias FleetPulse.Tracking.Geo
+  alias FleetPulse.Tracking.OfflineHistory
   alias FleetPulse.Tracking.StateCache
   alias FleetPulse.Tracking.Telemetry
   alias FleetPulse.Types
@@ -18,10 +19,15 @@ defmodule FleetPulse.Tracking do
   @type nearby_opts :: [
           status: Driver.status() | :any,
           min_capacity_kg: non_neg_integer(),
-          limit: pos_integer()
+          limit: pos_integer(),
+          fresh: boolean()
         ]
 
-  @typep filters :: %{status: Driver.status() | :any, min_capacity_kg: non_neg_integer()}
+  @typep filters :: %{
+           status: Driver.status() | :any,
+           min_capacity_kg: non_neg_integer(),
+           fresh: boolean()
+         }
 
   @spec fetch_driver(Types.id()) :: {:ok, Driver.t()} | {:error, :not_found}
   def fetch_driver(driver_id) do
@@ -31,10 +37,41 @@ defmodule FleetPulse.Tracking do
     end
   end
 
+  @spec fetch_active_driver(Types.id()) ::
+          {:ok, Driver.t()} | {:error, :not_found | :pending_approval}
+  def fetch_active_driver(driver_id) do
+    case fetch_driver(driver_id) do
+      {:ok, %Driver{active: true} = driver} -> {:ok, driver}
+      {:ok, %Driver{}} -> {:error, :pending_approval}
+      {:error, :not_found} = error -> error
+    end
+  end
+
   @spec start_tracking(Types.id()) :: {:ok, pid()} | {:error, Types.reason()}
   def start_tracking(driver_id) do
     with {:ok, _driver} <- fetch_driver(driver_id) do
       DriverSupervisor.start_driver(driver_id)
+    end
+  end
+
+  @spec attach_channel(Types.id(), pid()) :: {:ok, DriverState.t()} | {:error, Types.reason()}
+  def attach_channel(driver_id, channel) do
+    with {:ok, _pid} <- start_tracking(driver_id) do
+      DriverState.attach(driver_id, channel)
+    end
+  end
+
+  @spec detach_channel(Types.id(), pid()) :: :ok
+  def detach_channel(driver_id, channel) do
+    _ = DriverState.detach(driver_id, channel)
+    :ok
+  end
+
+  @spec live_status(Types.id()) :: Driver.status()
+  def live_status(driver_id) do
+    case DriverState.fetch(driver_id) do
+      {:ok, state} -> state.status
+      {:error, :not_found} -> :offline
     end
   end
 
@@ -47,6 +84,12 @@ defmodule FleetPulse.Tracking do
     DriverState.update_location(driver_id, telemetry)
   end
 
+  @spec record_offline_positions(Types.id(), term()) ::
+          {:ok, OfflineHistory.outcome()} | {:error, OfflineHistory.error()}
+  def record_offline_positions(driver_id, pings) do
+    OfflineHistory.record(driver_id, pings, DateTime.utc_now())
+  end
+
   @spec fetch_state(Types.id()) :: {:ok, DriverState.t()} | {:error, :not_found}
   def fetch_state(driver_id), do: DriverState.fetch(driver_id)
 
@@ -57,7 +100,8 @@ defmodule FleetPulse.Tracking do
   def nearby(coordinates, radius_km, opts \\ []) do
     filters = %{
       status: Keyword.get(opts, :status, :online),
-      min_capacity_kg: Keyword.get(opts, :min_capacity_kg, 0)
+      min_capacity_kg: Keyword.get(opts, :min_capacity_kg, 0),
+      fresh: Keyword.get(opts, :fresh, false)
     }
 
     box = Geo.bounding_box(coordinates, radius_km)
@@ -71,12 +115,11 @@ defmodule FleetPulse.Tracking do
   end
 
   @spec set_status(Types.id(), Driver.status()) ::
-          {:ok, Driver.t()} | {:error, :not_found | Driver.changeset()}
+          {:ok, DriverState.t()} | {:error, DriverState.duty_error() | Types.reason()}
   def set_status(driver_id, status) do
-    with {:ok, driver} <- fetch_driver(driver_id),
-         {:ok, updated} <- persist_status(driver, status) do
-      _ = DriverState.update_status(driver_id, status)
-      {:ok, updated}
+    with {:ok, _driver} <- fetch_driver(driver_id),
+         {:ok, _pid} <- DriverSupervisor.start_driver(driver_id) do
+      DriverState.set_duty(driver_id, status)
     end
   end
 
@@ -153,14 +196,6 @@ defmodule FleetPulse.Tracking do
     end
   end
 
-  @spec persist_status(Driver.t(), Driver.status()) ::
-          {:ok, Driver.t()} | {:error, Driver.changeset()}
-  defp persist_status(driver, status) do
-    driver
-    |> Driver.status_changeset(%{status: status})
-    |> Repo.update()
-  end
-
   @spec subscribe_fleet() :: Events.subscribe_result()
   def subscribe_fleet, do: Events.subscribe_fleet()
 
@@ -173,15 +208,19 @@ defmodule FleetPulse.Tracking do
   @spec unsubscribe_driver(Types.id()) :: :ok
   def unsubscribe_driver(driver_id), do: Events.unsubscribe_driver(driver_id)
 
-  @spec candidate?(DriverState.t(), Driver.status() | :any, Geo.box()) :: boolean()
   @spec candidate?(DriverState.t(), filters(), Geo.box()) :: boolean()
   defp candidate?(%DriverState{coordinates: nil}, _filters, _box), do: false
 
   defp candidate?(%DriverState{} = state, filters, box) do
     status_matches?(state.status, filters.status) and
       state.capacity_kg >= filters.min_capacity_kg and
+      fresh_enough?(state, filters.fresh) and
       Geo.within_box?(state.coordinates, box)
   end
+
+  @spec fresh_enough?(DriverState.t(), boolean()) :: boolean()
+  defp fresh_enough?(_state, false), do: true
+  defp fresh_enough?(state, true), do: DriverState.fresh?(state)
 
   @spec status_matches?(Driver.status(), Driver.status() | :any) :: boolean()
   defp status_matches?(_actual, :any), do: true

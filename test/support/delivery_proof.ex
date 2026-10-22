@@ -1,6 +1,6 @@
 defmodule FleetPulse.DeliveryProof do
   @moduledoc """
-  A photo uploaded to the proof-of-delivery bucket for a fleet job, and a signature drawn on the
+  A JPEG photo uploaded to the proof-of-delivery bucket for a fleet job, and a signature drawn on the
   phone, as a delivering courier would send them.
   """
 
@@ -22,8 +22,11 @@ defmodule FleetPulse.DeliveryProof do
     bytes = photo_bytes()
     url = photo_url_for(order_id, bytes)
     :ok = FakeStorage.uploaded(url, bytes)
-    %{"pod_photo_url" => url}
+    signed(%{"pod_photo_url" => url})
   end
+
+  @spec signed(map()) :: map()
+  def signed(attrs), do: Map.put(attrs, "pod_signature", signature_uri(signature_png()))
 
   @spec signature_png() :: <<_::640>>
   def signature_png, do: @png <> :crypto.strong_rand_bytes(64)

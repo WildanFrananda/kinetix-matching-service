@@ -3,7 +3,7 @@ defmodule FleetPulse.Clients.Order do
   Tells the order service that a courier finished a delivery.
   """
 
-  @type error :: :unavailable | :refused | :not_configured
+  @type error :: :unavailable | :refused
 
   @callback delivered(
               order_number :: String.t(),

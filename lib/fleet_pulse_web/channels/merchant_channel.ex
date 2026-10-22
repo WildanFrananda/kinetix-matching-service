@@ -1,10 +1,12 @@
 defmodule FleetPulseWeb.MerchantChannel do
   @moduledoc """
-  Real-time Phoenix channel for merchant order status streaming.
+  The status of a merchant's own fleet jobs, live: `active_orders` once on join with every job not
+  yet delivered or cancelled, then `order_updated` for each change.
   """
 
   use FleetPulseWeb, :channel
 
+  alias FleetPulse.Dispatch
   alias FleetPulse.Dispatch.Events
   alias FleetPulse.Dispatch.Order
   alias FleetPulse.Types
@@ -12,13 +14,16 @@ defmodule FleetPulseWeb.MerchantChannel do
   @typedoc "Serialized order data payload pushed to the merchant over WebSocket."
   @type order_payload :: %{
           id: Types.id(),
+          order_number: String.t() | nil,
+          awb_number: String.t() | nil,
           status: Order.status(),
           merchant_principal_id: String.t() | nil,
           driver_id: Types.id() | nil,
           weight_kg: non_neg_integer() | nil,
           pickup: %{latitude: Types.latitude() | nil, longitude: Types.longitude() | nil},
           dropoff: %{latitude: Types.latitude() | nil, longitude: Types.longitude() | nil},
-          assigned_at: DateTime.t() | nil
+          assigned_at: DateTime.t() | nil,
+          delivered_at: DateTime.t() | nil
         }
 
   @impl Phoenix.Channel
@@ -28,6 +33,7 @@ defmodule FleetPulseWeb.MerchantChannel do
     with {:ok, merchant_principal_id} <- parse_principal(topic_id),
          :ok <- authorise(merchant_principal_id, socket.assigns.merchant_principal_id) do
       :ok = Events.subscribe_orders()
+      send(self(), :after_join)
       {:ok, assign(socket, :merchant_principal_id, merchant_principal_id)}
     else
       {:error, reason} -> {:error, %{reason: to_reason(reason)}}
@@ -38,6 +44,12 @@ defmodule FleetPulseWeb.MerchantChannel do
 
   @impl Phoenix.Channel
   @spec handle_info(term(), Phoenix.Socket.t()) :: {:noreply, Phoenix.Socket.t()}
+  def handle_info(:after_join, socket) do
+    orders = Dispatch.list_active_orders_for_merchant(socket.assigns.merchant_principal_id)
+    push(socket, "active_orders", %{orders: Enum.map(orders, &serialize_order/1)})
+    {:noreply, socket}
+  end
+
   def handle_info({:order_changed, %Order{} = order}, socket) do
     if order.merchant_principal_id == socket.assigns.merchant_principal_id do
       push(socket, "order_updated", serialize_order(order))
@@ -72,13 +84,16 @@ defmodule FleetPulseWeb.MerchantChannel do
   defp serialize_order(%Order{} = order) do
     %{
       id: order.id,
+      order_number: order.order_number,
+      awb_number: order.awb_number,
       status: order.status,
       merchant_principal_id: order.merchant_principal_id,
       driver_id: order.driver_id,
       weight_kg: order.weight_kg,
       pickup: %{latitude: order.pickup_latitude, longitude: order.pickup_longitude},
       dropoff: %{latitude: order.dropoff_latitude, longitude: order.dropoff_longitude},
-      assigned_at: order.assigned_at
+      assigned_at: order.assigned_at,
+      delivered_at: order.delivered_at
     }
   end
 

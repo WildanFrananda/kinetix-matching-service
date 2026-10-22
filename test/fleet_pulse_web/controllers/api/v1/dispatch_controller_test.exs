@@ -223,7 +223,7 @@ defmodule FleetPulseWeb.Api.V1.DispatchControllerTest do
 
   describe "POST /backoffice/dispatches/:id/cancel" do
     test "calls off a pending job", %{conn: conn} do
-      order = dispatch!()
+      order = dispatch!(%{order_number: nil})
 
       body =
         conn
@@ -235,7 +235,7 @@ defmodule FleetPulseWeb.Api.V1.DispatchControllerTest do
 
     test "refuses to cancel one that has already finished", %{conn: conn} do
       driver = tracked_driver!()
-      order = dispatch!()
+      order = dispatch!(%{order_number: nil})
       {:ok, _} = Dispatch.assign_order_to_driver(order.id, driver.id)
       {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
       {:ok, _} = Dispatch.mark_delivered(order.id, driver.id, proof_for(order.id))
@@ -246,6 +246,145 @@ defmodule FleetPulseWeb.Api.V1.DispatchControllerTest do
         |> json_response(409)
 
       assert body["error"] == "invalid_transition"
+    end
+
+    test "refuses to cancel a job order is waiting on, and leaves it as it was", %{conn: conn} do
+      order = dispatch!()
+
+      body =
+        conn
+        |> post(~p"/api/v1/backoffice/dispatches/#{order.id}/cancel")
+        |> json_response(409)
+
+      assert body["error"] == "bound_to_order"
+      assert {:ok, %{status: :pending}} = Dispatch.fetch_order(order.id)
+    end
+
+    test "refuses to cancel a parcel the courier holds", %{conn: conn} do
+      driver = tracked_driver!()
+      order = dispatch!(%{order_number: nil})
+      {:ok, _} = Dispatch.assign_order_to_driver(order.id, driver.id)
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+
+      body =
+        conn
+        |> post(~p"/api/v1/backoffice/dispatches/#{order.id}/cancel")
+        |> json_response(409)
+
+      assert body["error"] == "invalid_transition"
+    end
+  end
+
+  describe "POST /backoffice/dispatches/:id/unassign" do
+    test "takes the job off the courier and puts it back to pending", %{conn: conn} do
+      driver = tracked_driver!()
+      order = dispatch!()
+      {:ok, _} = Dispatch.assign_order_to_driver(order.id, driver.id)
+
+      body =
+        conn
+        |> post(~p"/api/v1/backoffice/dispatches/#{order.id}/unassign")
+        |> json_response(200)
+
+      assert body["data"]["status"] == "pending"
+      assert body["data"]["driver_id"] == nil
+      assert body["data"]["awb_number"] == order.awb_number
+    end
+
+    test "refuses a parcel the courier already holds", %{conn: conn} do
+      driver = tracked_driver!()
+      order = dispatch!()
+      {:ok, _} = Dispatch.assign_order_to_driver(order.id, driver.id)
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+
+      body =
+        conn
+        |> post(~p"/api/v1/backoffice/dispatches/#{order.id}/unassign")
+        |> json_response(409)
+
+      assert body["error"] == "invalid_transition"
+    end
+
+    test "refuses a job nobody carries", %{conn: conn} do
+      order = dispatch!()
+
+      body =
+        conn
+        |> post(~p"/api/v1/backoffice/dispatches/#{order.id}/unassign")
+        |> json_response(409)
+
+      assert body["error"] == "not_assigned"
+    end
+
+    test "says not found for a job that does not exist", %{conn: conn} do
+      body =
+        conn
+        |> post(~p"/api/v1/backoffice/dispatches/99999999/unassign")
+        |> json_response(404)
+
+      assert body["error"] == "not_found"
+    end
+  end
+
+  describe "the board's pages" do
+    test "pages with a cursor and says when there is no more", %{conn: conn} do
+      orders = for _ <- 1..3, do: dispatch!()
+      newest = orders |> Enum.map(& &1.id) |> Enum.max()
+
+      first =
+        conn
+        |> get(~p"/api/v1/backoffice/dispatches?limit=2&before=#{newest + 1}")
+        |> json_response(200)
+
+      assert length(first["data"]) == 2
+      assert is_integer(first["next_cursor"])
+
+      rest =
+        conn
+        |> get(~p"/api/v1/backoffice/dispatches?limit=2&before=#{first["next_cursor"]}")
+        |> json_response(200)
+
+      assert hd(rest["data"])["id"] < first["next_cursor"]
+    end
+
+    test "refuses a page size it will not serve, and a cursor that is not one", %{conn: conn} do
+      assert %{"error" => "invalid_limit"} =
+               conn |> get(~p"/api/v1/backoffice/dispatches?limit=201") |> json_response(400)
+
+      assert %{"error" => "invalid_limit"} =
+               conn |> get(~p"/api/v1/backoffice/dispatches?limit=0") |> json_response(400)
+
+      assert %{"error" => "invalid_cursor"} =
+               conn |> get(~p"/api/v1/backoffice/dispatches?before=abc") |> json_response(400)
+    end
+  end
+
+  describe "an assignment that cannot be made" do
+    test "names a driver that does not exist apart from a job that does not", %{conn: conn} do
+      order = dispatch!()
+
+      body =
+        conn
+        |> post(~p"/api/v1/backoffice/dispatches/#{order.id}/assign", %{"driver_id" => 99_999_999})
+        |> json_response(404)
+
+      assert body["error"] == "driver_not_found"
+    end
+
+    test "says a driver who is not connected is not tracked", %{conn: conn} do
+      driver = driver_fixture()
+      order = dispatch!()
+
+      body =
+        conn
+        |> post(~p"/api/v1/backoffice/dispatches/#{order.id}/assign", %{"driver_id" => driver.id})
+        |> json_response(409)
+
+      assert body["error"] == "driver_not_tracked"
+    end
+
+    test "a database that cannot be reached is 503, not 500" do
+      assert Plug.Exception.status(%DBConnection.ConnectionError{message: "unreachable"}) == 503
     end
   end
 

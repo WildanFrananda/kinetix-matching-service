@@ -3,8 +3,11 @@ defmodule FleetPulse.TrackingTest do
 
   import FleetPulse.TrackingFixtures
 
+  alias FleetPulse.Dispatch.Order
   alias FleetPulse.Tracking
+  alias FleetPulse.Tracking.Driver
   alias FleetPulse.Tracking.DriverRegistry
+  alias FleetPulse.Tracking.DriverState
   alias FleetPulse.Tracking.StateCache
 
   setup do
@@ -39,13 +42,30 @@ defmodule FleetPulse.TrackingTest do
   end
 
   describe "start_tracking/1" do
-    test "rehydrates status from the drivers table", %{driver: driver} do
-      {:ok, _} = Tracking.set_status(driver.id, :busy)
+    test "a cold start is off duty whatever the table says, and counts the jobs carried",
+         %{driver: driver} do
+      Repo.update_all(where(Driver, id: ^driver.id), set: [status: :busy])
+
+      {:ok, _job} =
+        %Order{}
+        |> Order.changeset(%{
+          pickup_latitude: -6.2,
+          pickup_longitude: 106.8,
+          dropoff_latitude: -6.9,
+          dropoff_longitude: 107.6
+        })
+        |> Ecto.Changeset.put_change(:status, :picked_up)
+        |> Ecto.Changeset.put_change(:driver_id, driver.id)
+        |> Repo.insert()
+
       track!(driver)
 
       assert {:ok, state} = Tracking.fetch_state(driver.id)
-      assert state.status == :busy
+      assert state.status == :offline
+      assert state.active_orders_count == 1
       assert state.coordinates == nil
+
+      assert {:ok, %{status: :busy}} = Tracking.set_status(driver.id, :online)
     end
 
     test "is idempotent for an already tracked driver", %{driver: driver} do
@@ -88,10 +108,43 @@ defmodule FleetPulse.TrackingTest do
     test "writes through to both the database and the live process", %{driver: driver} do
       track!(driver)
 
-      assert {:ok, updated} = Tracking.set_status(driver.id, :busy)
-      assert updated.status == :busy
-      assert {:ok, %{status: :busy}} = Tracking.fetch_driver(driver.id)
-      assert {:ok, %{status: :busy}} = Tracking.fetch_state(driver.id)
+      assert {:ok, updated} = Tracking.set_status(driver.id, :online)
+      assert updated.status == :online
+      assert {:ok, %{status: :online}} = Tracking.fetch_driver(driver.id)
+      assert {:ok, %{status: :online}} = Tracking.fetch_state(driver.id)
+    end
+
+    test "refuses busy from a driver carrying nothing, and leaves it as it was", %{driver: driver} do
+      track!(driver)
+      {:ok, _} = Tracking.set_status(driver.id, :online)
+
+      assert {:error, :no_active_job} = Tracking.set_status(driver.id, :busy)
+      assert {:ok, %{status: :online}} = Tracking.fetch_driver(driver.id)
+      assert {:ok, %{status: :online}} = Tracking.fetch_state(driver.id)
+    end
+
+    test "online for a driver carrying a full load is busy", %{driver: driver} do
+      track!(driver)
+      {:ok, _} = Tracking.set_status(driver.id, :online)
+      {:ok, _claimed} = DriverState.claim(driver.id)
+      {:ok, _} = Tracking.set_status(driver.id, :offline)
+
+      assert {:ok, %{status: :busy}} = Tracking.set_status(driver.id, :online)
+      assert {:error, :unavailable} = DriverState.claim(driver.id)
+    end
+
+    test "a job finished while off duty leaves the driver off duty and counts down", %{
+      driver: driver
+    } do
+      track!(driver)
+      {:ok, _} = Tracking.set_status(driver.id, :online)
+      {:ok, _claimed} = DriverState.claim(driver.id)
+      {:ok, _} = Tracking.set_status(driver.id, :offline)
+
+      :ok = DriverState.release(driver.id)
+
+      assert {:ok, %{status: :offline, active_orders_count: 0}} = Tracking.fetch_state(driver.id)
+      assert {:ok, %{status: :online}} = Tracking.set_status(driver.id, :online)
     end
 
     test "records the status even when nobody is tracking the driver", %{driver: driver} do
@@ -99,15 +152,49 @@ defmodule FleetPulse.TrackingTest do
       assert {:ok, %{status: :online}} = Tracking.fetch_driver(driver.id)
     end
 
-    test "status survives a cold restart with an empty cache", %{driver: driver} do
+    test "a cold restart with an empty cache takes the driver off duty", %{driver: driver} do
       track!(driver)
-      {:ok, _} = Tracking.set_status(driver.id, :busy)
+      {:ok, _} = Tracking.set_status(driver.id, :online)
 
       :ok = Tracking.stop_tracking(driver.id)
       assert {:error, :not_found} = StateCache.fetch(driver.id)
 
       track!(driver)
-      assert {:ok, %{status: :busy}} = Tracking.fetch_state(driver.id)
+      assert {:ok, %{status: :offline}} = Tracking.fetch_state(driver.id)
+    end
+
+    test "the drivers row says what the live state decided, whichever way it changes", %{
+      driver: driver
+    } do
+      track!(driver)
+      row = fn -> Repo.get!(Driver, driver.id).status end
+
+      {:ok, _} = Tracking.set_status(driver.id, :online)
+      assert row.() == :online
+
+      {:ok, _claimed} = DriverState.claim(driver.id)
+      assert row.() == :busy
+
+      :ok = DriverState.release(driver.id)
+      {:ok, _} = Tracking.fetch_state(driver.id)
+      assert row.() == :online
+
+      {:ok, _} = Tracking.set_status(driver.id, :offline)
+      assert row.() == :offline
+    end
+
+    test "a cold start corrects a row left on duty", %{driver: driver} do
+      Repo.update_all(where(Driver, id: ^driver.id), set: [status: :online])
+
+      track!(driver)
+
+      assert {:ok, %{status: :offline}} = Tracking.fetch_state(driver.id)
+      assert Repo.get!(Driver, driver.id).status == :offline
+    end
+
+    test "starts the live process when nothing tracks the driver", %{driver: driver} do
+      assert {:ok, %{status: :online}} = Tracking.set_status(driver.id, :online)
+      assert {:ok, %{status: :online}} = Tracking.fetch_state(driver.id)
     end
   end
 
@@ -182,11 +269,19 @@ defmodule FleetPulse.TrackingTest do
       on_exit(fn -> cleanup(driver.id) end)
 
       {:ok, _pid} = Tracking.start_tracking(driver.id)
-      {:ok, _driver} = Tracking.set_status(driver.id, status)
+      {:ok, _state} = Tracking.set_status(driver.id, :online)
       :ok = Tracking.track_location(driver.id, telemetry_attrs(%{latitude: lat, longitude: lng}))
+      :ok = carry(driver.id, status)
       {:ok, _state} = Tracking.fetch_state(driver.id)
 
       driver
+    end
+
+    defp carry(_driver_id, :online), do: :ok
+
+    defp carry(driver_id, :busy) do
+      {:ok, %{status: :busy}} = DriverState.claim(driver_id)
+      :ok
     end
 
     test "returns online drivers inside the radius, nearest first" do
