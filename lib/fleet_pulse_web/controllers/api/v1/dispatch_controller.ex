@@ -7,15 +7,19 @@ defmodule FleetPulseWeb.Api.V1.DispatchController do
 
   alias FleetPulse.Dispatch
   alias FleetPulse.Dispatch.Order
+  alias FleetPulse.Security.AccessClaims
+
+  @max_page_size 200
 
   @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index(conn, params) do
-    case parse_status(Map.get(params, "status", "all")) do
-      {:ok, status} ->
-        json(conn, %{data: Enum.map(Dispatch.list_orders(status: status), &serialize/1)})
-
-      :error ->
-        error(conn, :bad_request, "invalid_status")
+    with {:ok, status} <- parse_status(Map.get(params, "status", "all")),
+         {:ok, size} <- parse_page_size(Map.get(params, "limit")),
+         {:ok, before} <- parse_cursor(Map.get(params, "before")) do
+      page = Dispatch.list_orders(status: status, limit: size, before: before)
+      json(conn, %{data: Enum.map(page.orders, &serialize/1), next_cursor: page.next_cursor})
+    else
+      {:error, reason} -> error(conn, :bad_request, reason)
     end
   end
 
@@ -59,21 +63,33 @@ defmodule FleetPulseWeb.Api.V1.DispatchController do
          {:ok, order} <- Dispatch.assign_order_to_driver(dispatch_id, driver_id) do
       json(conn, %{data: serialize(order)})
     else
-      {:error, :not_found} ->
-        error(conn, :not_found, "not_found")
-
-      {:error, :already_assigned} ->
-        error(conn, :conflict, "already_assigned")
-
-      {:error, reason} when is_atom(reason) ->
-        error(conn, :unprocessable_entity, to_string(reason))
-
-      :error ->
-        error(conn, :bad_request, "invalid_id")
+      {:error, %Ecto.Changeset{}} -> error(conn, :unprocessable_entity, "assignment_refused")
+      {:error, :not_found} -> error(conn, :not_found, "not_found")
+      {:error, :driver_not_found} -> error(conn, :not_found, "driver_not_found")
+      {:error, :already_assigned} -> error(conn, :conflict, "already_assigned")
+      {:error, :driver_not_tracked} -> error(conn, :conflict, "driver_not_tracked")
+      {:error, :driver_unavailable} -> error(conn, :conflict, "driver_unavailable")
+      :error -> error(conn, :bad_request, "invalid_id")
     end
   end
 
   def assign(conn, _params), do: error(conn, :bad_request, "driver_id_required")
+
+  @spec unassign(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def unassign(conn, %{"id" => id}) do
+    %AccessClaims{principal_id: admin} = conn.assigns.current_caller
+
+    with {:ok, dispatch_id} <- parse_id(id),
+         {:ok, order} <- Dispatch.unassign_order(dispatch_id, admin) do
+      json(conn, %{data: serialize(order)})
+    else
+      {:error, %Ecto.Changeset{}} -> error(conn, :unprocessable_entity, "unassignment_refused")
+      {:error, :not_found} -> error(conn, :not_found, "not_found")
+      {:error, :not_assigned} -> error(conn, :conflict, "not_assigned")
+      {:error, :invalid_transition} -> error(conn, :conflict, "invalid_transition")
+      :error -> error(conn, :bad_request, "invalid_id")
+    end
+  end
 
   @spec cancel(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def cancel(conn, %{"id" => id}) do
@@ -83,6 +99,7 @@ defmodule FleetPulseWeb.Api.V1.DispatchController do
     else
       {:error, :not_found} -> error(conn, :not_found, "not_found")
       {:error, :invalid_transition} -> error(conn, :conflict, "invalid_transition")
+      {:error, :bound_to_order} -> error(conn, :conflict, "bound_to_order")
       :error -> error(conn, :bad_request, "invalid_id")
     end
   end
@@ -92,6 +109,7 @@ defmodule FleetPulseWeb.Api.V1.DispatchController do
     %{
       id: order.id,
       order_number: order.order_number,
+      awb_number: order.awb_number,
       status: order.status,
       merchant_principal_id: order.merchant_principal_id,
       weight_kg: order.weight_kg,
@@ -99,6 +117,7 @@ defmodule FleetPulseWeb.Api.V1.DispatchController do
       pickup: %{latitude: order.pickup_latitude, longitude: order.pickup_longitude},
       dropoff: %{latitude: order.dropoff_latitude, longitude: order.dropoff_longitude},
       assigned_at: order.assigned_at,
+      delivered_at: order.delivered_at,
       inserted_at: order.inserted_at
     }
   end
@@ -115,15 +134,37 @@ defmodule FleetPulseWeb.Api.V1.DispatchController do
     )
   end
 
-  @spec parse_status(String.t()) :: {:ok, Order.status() | :all} | :error
+  @spec parse_status(term()) :: {:ok, Order.status() | :all} | {:error, String.t()}
   defp parse_status("all"), do: {:ok, :all}
 
   defp parse_status(status) when is_binary(status) do
-    match = Enum.find(Order.statuses(), fn known -> Atom.to_string(known) == status end)
-    if match, do: {:ok, match}, else: :error
+    case Enum.find(Order.statuses(), fn known -> Atom.to_string(known) == status end) do
+      nil -> {:error, "invalid_status"}
+      match -> {:ok, match}
+    end
   end
 
-  defp parse_status(_status), do: :error
+  defp parse_status(_status), do: {:error, "invalid_status"}
+
+  @spec parse_page_size(term()) :: {:ok, pos_integer() | nil} | {:error, String.t()}
+  defp parse_page_size(nil), do: {:ok, nil}
+
+  defp parse_page_size(size) do
+    case parse_id(size) do
+      {:ok, n} when n <= @max_page_size -> {:ok, n}
+      _invalid -> {:error, "invalid_limit"}
+    end
+  end
+
+  @spec parse_cursor(term()) :: {:ok, pos_integer() | nil} | {:error, String.t()}
+  defp parse_cursor(nil), do: {:ok, nil}
+
+  defp parse_cursor(cursor) do
+    case parse_id(cursor) do
+      {:ok, id} -> {:ok, id}
+      :error -> {:error, "invalid_cursor"}
+    end
+  end
 
   @spec parse_id(term()) :: {:ok, pos_integer()} | :error
   defp parse_id(id) when is_integer(id) and id > 0, do: {:ok, id}

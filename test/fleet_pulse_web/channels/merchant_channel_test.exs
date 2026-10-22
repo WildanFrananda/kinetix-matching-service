@@ -32,6 +32,39 @@ defmodule FleetPulseWeb.MerchantChannelTest do
                subscribe_and_join(socket, "merchant:#{merchant_principal_id}", %{})
     end
 
+    test "pushes the merchant's open jobs on join, with the order number and the waybill", %{
+      socket: socket,
+      merchant_principal_id: merchant_principal_id
+    } do
+      {:ok, open} =
+        Dispatch.create_order(%{
+          pickup_latitude: -6.2,
+          pickup_longitude: 106.81,
+          dropoff_latitude: -6.21,
+          dropoff_longitude: 106.82,
+          merchant_principal_id: merchant_principal_id,
+          order_number: "ORD-#{System.unique_integer([:positive])}",
+          awb_number: "KNX-TEST-#{System.unique_integer([:positive])}"
+        })
+
+      {:ok, _others} =
+        Dispatch.create_order(%{
+          pickup_latitude: -6.2,
+          pickup_longitude: 106.81,
+          dropoff_latitude: -6.21,
+          dropoff_longitude: 106.82,
+          merchant_principal_id: "1a5f9c30-77b4-42d8-9e61-3c0d8b2a4e77"
+        })
+
+      {:ok, _reply, _socket} =
+        subscribe_and_join(socket, "merchant:#{merchant_principal_id}", %{})
+
+      assert_push "active_orders", %{orders: [pushed]}
+      assert pushed.id == open.id
+      assert pushed.order_number == open.order_number
+      assert pushed.awb_number == open.awb_number
+    end
+
     test "refuses join when topic merchant_principal_id does not match socket", %{socket: socket} do
       assert {:error, %{reason: "forbidden"}} =
                subscribe_and_join(socket, "merchant:9f1d4a3e-1c62-4d0a-9a7b-2f5c8e0b41d7", %{})
@@ -95,6 +128,13 @@ defmodule FleetPulseWeb.MerchantChannelTest do
 
     test "refuses a connection carrying no token" do
       assert {:error, :missing_token} = connect(MerchantSocket, %{})
+    end
+
+    test "takes the token from the Sec-WebSocket-Protocol header" do
+      token = IdentityJwks.token(role: "seller", sub: "c3d1e2f4-0000-4000-8000-000000000001")
+
+      assert {:ok, socket} = connect(MerchantSocket, %{}, connect_info: %{auth_token: token})
+      assert socket.assigns.merchant_principal_id == "c3d1e2f4-0000-4000-8000-000000000001"
     end
   end
 

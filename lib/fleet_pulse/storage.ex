@@ -14,6 +14,8 @@ defmodule FleetPulse.Storage do
   @callback object_url(key :: String.t()) :: String.t()
   @callback key_of(url :: String.t()) :: {:ok, String.t()} | :error
   @callback checksum(key :: String.t()) :: {:ok, checksum()} | {:error, :unavailable}
+  @callback leading_bytes(key :: String.t(), count :: pos_integer()) ::
+              {:ok, binary() | :absent} | {:error, :unavailable}
 
   @spec impl() :: module()
   def impl do
@@ -36,4 +38,8 @@ defmodule FleetPulse.Storage do
 
   @spec checksum(String.t()) :: {:ok, checksum()} | {:error, :unavailable}
   def checksum(key), do: impl().checksum(key)
+
+  @spec leading_bytes(String.t(), pos_integer()) ::
+          {:ok, binary() | :absent} | {:error, :unavailable}
+  def leading_bytes(key, count), do: impl().leading_bytes(key, count)
 end

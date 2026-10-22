@@ -1,7 +1,13 @@
 defmodule FleetPulseWeb.Api.V1.DriverProfileControllerTest do
   use FleetPulseWeb.ConnCase, async: false
 
+  import Ecto.Query
   import FleetPulse.TrackingFixtures
+
+  alias FleetPulse.Repo
+  alias FleetPulse.Tracking
+  alias FleetPulse.Tracking.Driver
+  alias FleetPulse.Tracking.DriverState
 
   defp principal, do: "principal-#{System.unique_integer([:positive])}"
 
@@ -32,6 +38,27 @@ defmodule FleetPulseWeb.Api.V1.DriverProfileControllerTest do
     assert body["data"]["id"] == driver.id
     assert body["data"]["vehicle_plate"] == driver.vehicle_plate
     assert body["data"]["active"] == true
+  end
+
+  test "answers the status the courier is in now, not what its row last said" do
+    sub = principal()
+    driver = active_driver_fixture(sub)
+    on_exit(fn -> Tracking.stop_tracking(driver.id) end)
+
+    {:ok, _} = Tracking.set_status(driver.id, :online)
+    {:ok, _claimed} = DriverState.claim(driver.id)
+    Repo.update_all(where(Driver, id: ^driver.id), set: [status: :offline])
+
+    assert authed(sub) |> get_me() |> json_response(200) |> get_in(["data", "status"]) == "busy"
+  end
+
+  test "an untracked courier is off duty, whatever its row says" do
+    sub = principal()
+    driver = active_driver_fixture(sub)
+    Repo.update_all(where(Driver, id: ^driver.id), set: [status: :online])
+
+    assert authed(sub) |> get_me() |> json_response(200) |> get_in(["data", "status"]) ==
+             "offline"
   end
 
   test "does not answer with the driver's name or phone number" do

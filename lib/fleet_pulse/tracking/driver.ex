@@ -61,11 +61,4 @@ defmodule FleetPulse.Tracking.Driver do
     |> validate_required([:principal_id])
     |> unique_constraint(:principal_id)
   end
-
-  @spec status_changeset(t(), map()) :: changeset()
-  def status_changeset(%__MODULE__{} = driver, attrs) do
-    driver
-    |> cast(attrs, [:status])
-    |> validate_required([:status])
-  end
 end

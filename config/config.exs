@@ -37,15 +37,18 @@ config :fleet_pulse, FleetPulse.Tracking.PingRetention,
   interval_ms: :timer.hours(24),
   retention_ms: :timer.hours(24 * 30)
 
-config :fleet_pulse, FleetPulseWeb.Plugs.RateLimit,
-  enabled: true,
-  scale_ms: 60_000,
-  register: 3
+config :fleet_pulse, FleetPulseWeb.DriverChannel,
+  ping_window_ms: 10_000,
+  ping_limit: 100,
+  ping_batch_window_ms: 60_000,
+  ping_batch_limit: 30
 
 config :fleet_pulse, FleetPulse.Mailer, adapter: Swoosh.Adapters.Local
 
 config :logger, :default_formatter, metadata: :all
 
 config :phoenix, :json_library, Jason
+
+config :elixir, :time_zone_database, Tz.TimeZoneDatabase
 
 import_config "#{config_env()}.exs"

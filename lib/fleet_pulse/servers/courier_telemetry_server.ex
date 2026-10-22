@@ -90,7 +90,7 @@ defmodule FleetPulse.CourierTelemetryServer do
     }
   end
 
-  @spec describe(term()) :: {String.t(), String.t()}
+  @spec describe(term()) :: {String.t(), String.t()} | no_return()
   defp describe(:blank_order_number),
     do: {"BLANK_ORDER_NUMBER", "order_number is required: a fleet job delivers a named order"}
 
@@ -134,5 +134,9 @@ defmodule FleetPulse.CourierTelemetryServer do
     {"ASSIGNMENT_FAILED", "the assignment could not be written: #{details}"}
   end
 
-  defp describe(other), do: {"DISPATCH_FAILED", inspect(other)}
+  defp describe(other) do
+    raise GRPC.RPCError,
+      status: GRPC.Status.internal(),
+      message: "dispatch failed in a way it does not answer for: #{inspect(other)}"
+  end
 end

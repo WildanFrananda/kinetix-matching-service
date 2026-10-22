@@ -32,8 +32,6 @@ config :fleet_pulse, FleetPulse.Tracking.PingRetention, enabled: false
 config :fleet_pulse, FleetPulse.Dispatch.ReDispatcher, enabled: false, debounce_ms: 60_000
 config :fleet_pulse, FleetPulse.Dispatch.DeliveryReporter, enabled: false
 
-config :fleet_pulse, FleetPulseWeb.Plugs.RateLimit, enabled: false
-
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false
 
@@ -60,4 +58,5 @@ config :fleet_pulse, start_grpc_server: false
 config :swoosh, :api_client, false
 
 config :fleet_pulse, FleetPulse.Clients.Order, impl: FleetPulse.FakeOrder
+config :fleet_pulse, :time_zone, "Asia/Jakarta"
 config :fleet_pulse, FleetPulse.Storage, impl: FleetPulse.FakeStorage

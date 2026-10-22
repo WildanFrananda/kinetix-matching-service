@@ -6,6 +6,7 @@ defmodule FleetPulseWeb.Endpoint do
   @drainer [batch_size: 1_000, batch_interval: 1_000, shutdown: 8_000]
 
   socket "/driver", FleetPulseWeb.DriverSocket,
+    auth_token: true,
     websocket: [
       connect_info: [:peer_data, :user_agent],
       error_handler: {FleetPulseWeb.DriverSocket, :handle_error, []}
@@ -14,6 +15,7 @@ defmodule FleetPulseWeb.Endpoint do
     drainer: @drainer
 
   socket "/merchant", FleetPulseWeb.MerchantSocket,
+    auth_token: true,
     websocket: [
       connect_info: [:peer_data, :user_agent],
       error_handler: {FleetPulseWeb.MerchantSocket, :handle_error, []}

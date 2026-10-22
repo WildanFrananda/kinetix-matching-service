@@ -96,4 +96,24 @@ defmodule FleetPulse.Dispatch.ReDispatcherTest do
            end),
            "expected the stranded order to be auto-assigned within the debounce window"
   end
+
+  test "a job taken off a courier is offered to another at once, not to the same one" do
+    :ok = stop_supervised(ReDispatcher)
+    start_supervised!({ReDispatcher, debounce_ms: 20})
+
+    first = online_driver_at_pickup()
+    order = order_at_pickup()
+    {:ok, %{driver_id: taken_from}} = Dispatch.assign_order_to_driver(order.id, first.id)
+
+    second = online_driver_at_pickup()
+    {:ok, _pending} = Dispatch.unassign_order(order.id, "admin-principal")
+
+    assert eventually(fn ->
+             match?({:ok, %{status: :assigned}}, Dispatch.fetch_order(order.id))
+           end)
+
+    assert {:ok, %{driver_id: now_with}} = Dispatch.fetch_order(order.id)
+    assert taken_from == first.id
+    assert now_with == second.id
+  end
 end
