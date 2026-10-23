@@ -559,21 +559,36 @@ defmodule FleetPulse.Dispatch do
   @spec persist_assignment(Order.t(), DriverState.t()) ::
           {:ok, Order.t()} | {:error, :not_found | :already_assigned | Order.changeset()}
   defp persist_assignment(order, driver_state) do
+    order
+    |> write_assignment(driver_state.driver_id)
+    |> release_on_failure(driver_state.driver_id)
+    |> broadcast_on_success(driver_state.driver_id)
+  end
+
+  @spec write_assignment(Order.t(), Types.id()) ::
+          {:ok, Order.t()} | {:error, :not_found | :already_assigned | Order.changeset()}
+  defp write_assignment(order, driver_id) do
     fn ->
       with {:ok, locked} <- lock_order(order.id),
            :ok <- ensure_pending(locked) do
         locked
         |> Ecto.Changeset.change(
           status: :assigned,
-          driver_id: driver_state.driver_id,
+          driver_id: driver_id,
           assigned_at: DateTime.utc_now()
         )
         |> Repo.update()
       end
     end
     |> Repo.transact()
-    |> release_on_failure(driver_state.driver_id)
-    |> broadcast_on_success(driver_state.driver_id)
+  rescue
+    exception ->
+      _ = DriverState.release(driver_id)
+      reraise exception, __STACKTRACE__
+  catch
+    :exit, reason ->
+      _ = DriverState.release(driver_id)
+      exit(reason)
   end
 
   @spec broadcast_on_success({:ok, Order.t()} | {:error, term()}, Types.id()) ::

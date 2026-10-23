@@ -48,6 +48,7 @@ defmodule FleetPulse.Application do
   defp core do
     [
       FleetPulse.Observability.Metrics,
+      FleetPulseWeb.AdminActionsSeed,
       FleetPulseWeb.Telemetry,
       FleetPulse.Repo,
       {DNSCluster, query: Application.get_env(:fleet_pulse, :dns_cluster_query) || :ignore},

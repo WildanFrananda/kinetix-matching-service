@@ -40,14 +40,14 @@ case System.get_env("LOG_LEVEL") do
             "Use one of: emergency alert critical error warning notice info debug."
 end
 
-if config_env() != :test do
-  required = fn name, what ->
-    case System.get_env(name) do
-      value when is_binary(value) and value != "" -> value
-      _missing -> raise "environment variable #{name} is missing: #{what}"
-    end
+required = fn name, what ->
+  case System.get_env(name) do
+    value when is_binary(value) and value != "" -> value
+    _missing -> raise "environment variable #{name} is missing: #{what}"
   end
+end
 
+if config_env() != :test do
   config :fleet_pulse, FleetPulse.Clients.OrderGrpc,
     host:
       required.("ORDER_GRPC_HOST", "the host:port of order's gRPC server, told of every delivery")
@@ -95,7 +95,11 @@ if config_env() == :prod do
     access_key: System.fetch_env!("OBJECT_STORE_ACCESS_KEY"),
     secret_key: System.fetch_env!("OBJECT_STORE_SECRET_KEY")
 
-  host = System.get_env("PHX_HOST") || "example.com"
+  host =
+    required.(
+      "PHX_HOST",
+      "the public host of this endpoint's URL, which a browser socket's Origin must match"
+    )
 
   config :fleet_pulse, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 

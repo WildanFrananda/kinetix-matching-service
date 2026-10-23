@@ -1,10 +1,12 @@
 defmodule FleetPulse.Dispatch.ReDispatcherTest do
   use FleetPulse.DataCase, async: false
 
+  import ExUnit.CaptureLog
   import FleetPulse.TrackingFixtures
 
   alias FleetPulse.Dispatch
   alias FleetPulse.Dispatch.ReDispatcher
+  alias FleetPulse.FailingAssignment
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.StateCache
 
@@ -95,6 +97,20 @@ defmodule FleetPulse.Dispatch.ReDispatcherTest do
              match?({:ok, %{status: :assigned}}, Dispatch.fetch_order(order.id))
            end),
            "expected the stranded order to be auto-assigned within the debounce window"
+  end
+
+  test "a database failure during a sweep frees the courier and keeps the re-dispatcher up" do
+    order = order_at_pickup()
+    driver = online_driver_at_pickup()
+    :ok = FailingAssignment.refuse!()
+    running = Process.whereis(ReDispatcher)
+
+    log = capture_log(fn -> assert {:ok, 0} = ReDispatcher.sweep_now() end)
+
+    assert log =~ "the sweep stopped because the database failed"
+    assert Process.whereis(ReDispatcher) == running
+    assert {:ok, %{status: :online, active_orders_count: 0}} = Tracking.fetch_state(driver.id)
+    assert {:ok, %{status: :pending}} = Dispatch.fetch_order(order.id)
   end
 
   test "a job taken off a courier is offered to another at once, not to the same one" do

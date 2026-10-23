@@ -1,6 +1,7 @@
 defmodule FleetPulseWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :fleet_pulse
 
+  @before_compile FleetPulseWeb.SocketAuthToken
   @before_compile FleetPulseWeb.HttpMetrics
 
   @drainer [batch_size: 1_000, batch_interval: 1_000, shutdown: 8_000]

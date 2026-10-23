@@ -71,6 +71,23 @@ defmodule FleetPulseWeb.MerchantChannelTest do
     end
   end
 
+  describe "a message from the merchant" do
+    test "is refused with a reply, and the channel stays joined", %{
+      socket: socket,
+      merchant_principal_id: merchant_principal_id
+    } do
+      {:ok, _reply, channel} =
+        subscribe_and_join(socket, "merchant:#{merchant_principal_id}", %{})
+
+      for {event, payload} <- [{"ping", %{}}, {"cancel", %{"order_id" => 1}}, {"x", "text"}] do
+        ref = push(channel, event, payload)
+        assert_reply ref, :error, %{reason: "unknown_event"}
+      end
+
+      assert Process.alive?(channel.channel_pid)
+    end
+  end
+
   describe "real-time order updates" do
     test "pushes order_updated event to connected merchant when their order changes", %{
       socket: socket,
