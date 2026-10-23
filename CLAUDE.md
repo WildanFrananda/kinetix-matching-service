@@ -147,7 +147,41 @@ rule, so infrastructure keeps matching's list to service entries until this rele
 
 `/drivers`, `/drivers/nearby` and `/drivers/:id` answer to `admin` only. Every seller could read every
 courier's live position, speed and heading, and an offline courier's last one, and nothing in the estate
-used the routes as a seller.
+used the routes as a seller. `nearby` reads `latitude` (-90 to 90), `longitude` (-180 to 180) and `radius_km`
+(above zero, 3 when absent) as whole decimal numbers; anything else, a list or a map included, is 400
+`invalid_nearby_query`. Until 2026-10-22 a list answered 500 and `6.2abc` was read as 6.2.
+
+### What an administrator does is audited
+
+Every route behind the `:fleet_operator` pipeline names its action in the route's metadata as
+`admin_action` (`matching.assign`, `matching.unassign`, `matching.cancel`, `matching.drivers_nearby`, …),
+and `Plugs.AdminAudit`, after `RequireRole`, records each answer: one `admin_action` line at info with
+`actor` (the token's `sub`), `action`, `target` (the path's `id` or `driver_id`, null for a list) and
+`outcome`, the formatter adding `request_id`; and one count of `kinetix_admin_actions_total{action,
+outcome}`, every pair published at zero at boot (`AdminActionsSeed`, from the router). A 2xx or 3xx is
+`done`, a 4xx `refused`, anything else `failed`, a raise included. A route there that names no action
+raises, and `AdminAuditTest` fails first. A caller `RequireRole` turns away is not an administrator and
+is not recorded.
+
+### An administrator's assign is an override
+
+`assign_order_to_driver` places a job on the courier an administrator names whatever the courier can
+carry and however old its position is; automatic dispatch checks both (`eligible_drivers`). Ruled
+2026-10-22: the administrator decides, and the decision is audited (`matching.assign`). It still needs a
+courier this node tracks who is on duty and has room (`driver_not_tracked`, `driver_unavailable`).
+
+### A claim is released when the assignment is not written
+
+A courier is claimed in `DriverState` before the job's row is written. When that transaction answers an
+error the claim is released (`release_on_failure`); when it raises, as it does when the database cannot be
+reached, `write_assignment` releases it and re-raises, so the request still answers 503. Until 2026-10-22
+a raise left the courier counted as carrying a job it never got, and `status online` answered `busy`
+until the process was reaped. This holds for automatic dispatch, the administrator's assign and the
+re-dispatcher alike. A raise while committing cannot say whether the row was written; the claim is
+released all the same, and a job that was written reaches the courier in `active_order` on its next join.
+The re-dispatcher logs a sweep the database stops and stays up: it sweeps up to once a second while
+couriers ping, and a crash per sweep would soon exceed the top supervisor's default of three restarts in
+five seconds, which stops the application.
 
 ### A parcel weighs at least what the sender says
 
@@ -216,7 +250,12 @@ fresh.
 `order_unassignments`, frees the courier and tells its app (`order_unassigned`, then `active_order`).
 `ReDispatcher` offers the job at once, never to a courier it was taken from; an administrator may still hand it
 back by name. Order is not told: it calls `DispatchCourier` only until one succeeds, and the waybill and the
-order number stay on the job; the courier who delivers is named in `OrderDelivered`. A `picked_up` job is
+order number stay on the job; the courier who delivers is named in `OrderDelivered`. `DispatchCourier`'s
+`assigned_driver_principal_id` names whoever carries the job when it answers (the courier just claimed, or
+the one already on it for a repeat); nothing tells order of an unassign, a re-offer or an administrator's
+assign. `OrderDelivered` names the principal of the job's driver at `delivered`, the courier who made the
+call (`ensure_owner`, again under the row lock); a job is unassigned only while `assigned`, and a driver's
+`principal_id` is written once, at registration, so it is the principal in the evidence log too. A `picked_up` job is
 neither unassigned nor cancelled: the parcel is in the courier's hands. A job with an order number is not
 cancelled here (`bound_to_order`): order would never hear of it and its paid order would wait for a courier
 forever. That waits on the admin-cancel fact reaching order over RabbitMQ from an outbox
@@ -229,17 +268,33 @@ Both sockets take the access token from Phoenix's `auth_token` (the `Sec-WebSock
 is still read for app builds that send it; the gateway's access log records every query string, so it goes
 once no installed app uses it.
 
+Phoenix decodes the entry with `Base.decode64!`, the standard alphabet, and a malformed entry raised and
+answered 500. `SocketAuthToken`, wrapped around the endpoint inside `HttpMetrics`, refuses with 403 an
+entry that base64url and the standard alphabet do not both read; what passes decodes to the same bytes
+under either, so the prefix and the decode agree. A token's text is only `A-Z a-z 0-9 - _ .`, whose
+encoding never reaches the two characters the alphabets differ in, so the courier app's `base64Encode`
+of a token (`channel_client.dart`) and Phoenix JS's `btoa` are already base64url; a test pins it.
+
+Matching serves the sockets at `/driver/websocket` and `/merchant/websocket`, nothing else (no long
+polling); the gateway's `/ws/v1/matching/driver` and `/ws/v1/matching/merchant` routes forward there.
+The merchant channel only pushes: a message from the client is answered `unknown_event` (until
+2026-10-22 it crashed the channel).
+
 ### An outage is never a business answer
 
 A database that cannot be reached is 503 on HTTP (`Plug.Exception` for `DBConnection.ConnectionError`), not
 500. `FleetRegistryService` and `CourierTelemetryService` answer a reason they do not know with gRPC
 `INTERNAL`, never `success: false`: identity treats a refusal as final and returns the account to the customer.
 Order retries `DispatchCourier` on any error status and on any refusal but `ORDER_ALREADY_FINISHED`.
+The 500 body says the request may have taken effect: a raise can come after a commit, so it claims
+nothing about what changed.
 
 ### Required configuration fails at start
 
 `ORDER_GRPC_HOST` (order's gRPC address) and `IDENTITY_JWKS_URL` refuse to start when unset or empty; until
 2026-10-21 a missing order address was found at the first delivery, as a retry that could never succeed.
+In production `PHX_HOST`, the endpoint's public host and the host a browser socket's `Origin` is checked
+against, is required too; it fell back to `example.com`, which refuses every browser socket with 403.
 `KINETIX_TIME_ZONE` is the platform's clock, an IANA name, the zone warehouse reads too: "delivered today" counts
 from midnight on it (`PlatformTimeZone`, on the `tz` database), and the application refuses to start on a name
 that is not a zone. It was the UTC day, which starts at 07:00 in Jakarta.

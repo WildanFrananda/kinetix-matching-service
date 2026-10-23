@@ -1,7 +1,8 @@
 defmodule FleetPulseWeb.MerchantChannel do
   @moduledoc """
   The status of a merchant's own fleet jobs, live: `active_orders` once on join with every job not
-  yet delivered or cancelled, then `order_updated` for each change.
+  yet delivered or cancelled, then `order_updated` for each change. A message from the client is
+  answered `unknown_event`: this channel only pushes.
   """
 
   use FleetPulseWeb, :channel
@@ -11,7 +12,6 @@ defmodule FleetPulseWeb.MerchantChannel do
   alias FleetPulse.Dispatch.Order
   alias FleetPulse.Types
 
-  @typedoc "Serialized order data payload pushed to the merchant over WebSocket."
   @type order_payload :: %{
           id: Types.id(),
           order_number: String.t() | nil,
@@ -41,6 +41,13 @@ defmodule FleetPulseWeb.MerchantChannel do
   end
 
   def join(_topic, _payload, _socket), do: {:error, %{reason: "unknown_topic"}}
+
+  @impl Phoenix.Channel
+  @spec handle_in(String.t(), term(), Phoenix.Socket.t()) ::
+          {:reply, {:error, %{reason: String.t()}}, Phoenix.Socket.t()}
+  def handle_in(_event, _payload, socket) do
+    {:reply, {:error, %{reason: "unknown_event"}}, socket}
+  end
 
   @impl Phoenix.Channel
   @spec handle_info(term(), Phoenix.Socket.t()) :: {:noreply, Phoenix.Socket.t()}

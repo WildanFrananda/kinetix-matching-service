@@ -102,4 +102,71 @@ defmodule FleetPulseWeb.Api.V1.DriverControllerTest do
              |> get(~p"/api/v1/drivers/nearby?latitude=north&longitude=106.8")
              |> json_response(400)
   end
+
+  test "a list or a map where a number belongs is a bad request, not a crash", %{conn: conn} do
+    for query <- [
+          "latitude[]=1&longitude=106.8",
+          "latitude[north]=1&longitude=106.8",
+          "latitude=-6.2&longitude[]=106.8",
+          "latitude=-6.2&longitude=106.8&radius_km[]=3",
+          "latitude=-6.2&longitude=106.8&radius_km[wide]=3"
+        ] do
+      assert %{"error" => "invalid_nearby_query"} =
+               conn
+               |> get("/api/v1/drivers/nearby?" <> query)
+               |> json_response(400),
+             query
+    end
+  end
+
+  test "a number followed by anything else is refused, not read up to where it stops",
+       %{conn: conn} do
+    for query <- [
+          "latitude=-6.2abc&longitude=106.8",
+          "latitude=-6.2&longitude=106.8east",
+          "latitude=-6.2&longitude=106.8&radius_km=3km",
+          "latitude=-6.2%20&longitude=106.8"
+        ] do
+      assert %{"error" => "invalid_nearby_query"} =
+               conn
+               |> get("/api/v1/drivers/nearby?" <> query)
+               |> json_response(400),
+             query
+    end
+  end
+
+  test "a point off the globe or a radius that is not positive is refused", %{conn: conn} do
+    for query <- [
+          "latitude=90.5&longitude=106.8",
+          "latitude=-91&longitude=106.8",
+          "latitude=-6.2&longitude=180.1",
+          "latitude=-6.2&longitude=-181",
+          "latitude=-6.2&longitude=106.8&radius_km=0",
+          "latitude=-6.2&longitude=106.8&radius_km=-3"
+        ] do
+      assert %{"error" => "invalid_nearby_query"} =
+               conn
+               |> get("/api/v1/drivers/nearby?" <> query)
+               |> json_response(400),
+             query
+    end
+  end
+
+  test "whole numbers and the edges of the globe are read as points", %{conn: conn} do
+    track!(-6.0, 107.0)
+
+    for query <- [
+          "latitude=-6&longitude=107",
+          "latitude=90&longitude=180",
+          "latitude=-90&longitude=-180&radius_km=1"
+        ] do
+      assert %{"data" => data} =
+               conn
+               |> get("/api/v1/drivers/nearby?" <> query)
+               |> json_response(200),
+             query
+
+      assert is_list(data)
+    end
+  end
 end

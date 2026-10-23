@@ -9,6 +9,8 @@ defmodule FleetPulseWeb.Api.V1.DriverController do
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.DriverState
 
+  @default_radius_km 3.0
+
   @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index(conn, _params) do
     json(conn, %{data: Enum.map(Tracking.list_tracked(), &serialize/1)})
@@ -62,19 +64,32 @@ defmodule FleetPulseWeb.Api.V1.DriverController do
     end
   end
 
+  @spec parse_nearby(map()) :: {:ok, {float(), float()}, float()} | :error
   defp parse_nearby(%{"latitude" => lat, "longitude" => lng} = params) do
-    radius = Map.get(params, "radius_km", "3.0")
-
-    with {latf, _} <- Float.parse(lat),
-         {lngf, _} <- Float.parse(lng),
-         {radf, _} when radf > 0 <- Float.parse(radius) do
-      {:ok, {latf, lngf}, radf}
+    with {:ok, latitude} when latitude >= -90.0 and latitude <= 90.0 <- parse_float(lat),
+         {:ok, longitude} when longitude >= -180.0 and longitude <= 180.0 <- parse_float(lng),
+         {:ok, radius_km} when radius_km > 0.0 <- parse_radius(params) do
+      {:ok, {latitude, longitude}, radius_km}
     else
       _invalid -> :error
     end
   end
 
   defp parse_nearby(_params), do: :error
+
+  @spec parse_radius(map()) :: {:ok, float()} | :error
+  defp parse_radius(%{"radius_km" => radius}), do: parse_float(radius)
+  defp parse_radius(_params), do: {:ok, @default_radius_km}
+
+  @spec parse_float(term()) :: {:ok, float()} | :error
+  defp parse_float(value) when is_binary(value) do
+    case Float.parse(value) do
+      {number, ""} -> {:ok, number}
+      _invalid -> :error
+    end
+  end
+
+  defp parse_float(_value), do: :error
 
   defp error(conn, status, message) do
     conn

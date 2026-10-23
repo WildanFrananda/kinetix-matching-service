@@ -1,15 +1,11 @@
 defmodule FleetPulse.Dispatch.ReDispatcher do
   @moduledoc """
-  Re-attempts pending orders when drivers become available (PRD 9.1).
-
-  An order created with no eligible driver in range would otherwise sit
-  `pending` forever. This process reacts — no polling — to the same PubSub
-  broadcasts the dashboard already consumes: a driver going `online`, or a new
-  pending order. On either signal it schedules a single debounced sweep that
-  runs `Dispatch.assign_order/2` over the current pending orders.
+  Re-attempts pending orders when drivers become available
   """
 
   use GenServer
+
+  require Logger
 
   alias FleetPulse.Dispatch
   alias FleetPulse.Dispatch.Order
@@ -92,6 +88,14 @@ defmodule FleetPulse.Dispatch.ReDispatcher do
     Dispatch.list_pending_orders()
     |> Enum.map(&Dispatch.assign_order(&1.id))
     |> Enum.count(&match?({:ok, _order}, &1))
+  rescue
+    exception in [DBConnection.ConnectionError, Postgrex.Error] ->
+      Logger.warning(
+        "[ReDispatcher] the sweep stopped because the database failed: " <>
+          Exception.message(exception)
+      )
+
+      0
   end
 
   @spec debounce_ms(term()) :: pos_integer()

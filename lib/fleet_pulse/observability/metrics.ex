@@ -12,6 +12,7 @@ defmodule FleetPulse.Observability.Metrics do
   @grpc_server_call [:kinetix, :grpc, :server, :call]
   @grpc_client_call [:kinetix, :grpc, :client, :call]
   @build_info [:kinetix, :build, :info]
+  @admin_action [:kinetix, :admin, :action]
 
   @buckets [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10]
 
@@ -23,6 +24,9 @@ defmodule FleetPulse.Observability.Metrics do
 
   @spec grpc_client_call_event() :: [atom()]
   def grpc_client_call_event, do: @grpc_client_call
+
+  @spec admin_action_event() :: :telemetry.event_name()
+  def admin_action_event, do: @admin_action
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(_opts) do
@@ -71,6 +75,13 @@ defmodule FleetPulse.Observability.Metrics do
         measurement: :count,
         tags: [:peer, :grpc_method, :grpc_code],
         description: "gRPC calls this service placed, by peer, method and canonical status code."
+      ),
+      sum("kinetix.admin.actions.total",
+        event_name: @admin_action,
+        measurement: :count,
+        tags: [:action, :outcome],
+        description:
+          "Requests an administrator made on an admin-only route, by action and outcome."
       ),
       last_value("kinetix.build.info",
         event_name: @build_info,

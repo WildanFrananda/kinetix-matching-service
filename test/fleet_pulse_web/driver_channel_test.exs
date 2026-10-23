@@ -5,6 +5,7 @@ defmodule FleetPulseWeb.DriverChannelTest do
   import FleetPulse.TrackingFixtures
 
   alias FleetPulse.Dispatch
+  alias FleetPulse.FailingAssignment
   alias FleetPulse.FakeStorage
   alias FleetPulse.IdentityJwks
   alias FleetPulse.Repo
@@ -425,6 +426,24 @@ defmodule FleetPulseWeb.DriverChannelTest do
 
       ref = push(channel, "status", %{"status" => "offline"})
       assert_reply ref, :ok, %{status: :offline}
+    end
+
+    test "a courier offered a job the database failed to write answers online, not busy",
+         %{channel: channel, driver: driver} do
+      channel |> on_duty!() |> ping!()
+      automatic = job_at_pickup!()
+      chosen = job_at_pickup!()
+      :ok = FailingAssignment.refuse!()
+
+      assert_raise Postgrex.Error, fn -> Dispatch.assign_order(automatic.id) end
+
+      ref = push(channel, "status", %{"status" => "online"})
+      assert_reply ref, :ok, %{status: :online}
+
+      assert_raise Postgrex.Error, fn -> Dispatch.assign_order_to_driver(chosen.id, driver.id) end
+
+      ref = push(channel, "status", %{"status" => "online"})
+      assert_reply ref, :ok, %{status: :online}
     end
 
     test "refuses a status message without a status", %{channel: channel} do

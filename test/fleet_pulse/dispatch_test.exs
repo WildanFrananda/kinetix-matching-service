@@ -8,6 +8,7 @@ defmodule FleetPulse.DispatchTest do
   alias FleetPulse.Dispatch.Events
   alias FleetPulse.Dispatch.Order
   alias FleetPulse.Dispatch.Unassignment
+  alias FleetPulse.FailingAssignment
   alias FleetPulse.FakeStorage
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.DriverRegistry
@@ -543,6 +544,59 @@ defmodule FleetPulse.DispatchTest do
       {:ok, order} = Dispatch.create_order(order_attrs())
 
       assert {:error, :driver_not_tracked} = Dispatch.assign_order_to_driver(order.id, driver.id)
+    end
+
+    test "an administrator's choice overrides capacity and the freshness of the position" do
+      driver = driver_fixture(%{capacity_kg: 10})
+      on_exit(fn -> cleanup(driver.id) end)
+      {:ok, _pid} = Tracking.start_tracking(driver.id)
+      {:ok, _state} = Tracking.set_status(driver.id, :online)
+      {:ok, order} = Dispatch.create_order(order_attrs(%{weight_kg: 100}))
+
+      assert {:error, :no_driver_available} = Dispatch.assign_order(order.id)
+      assert {:ok, assigned} = Dispatch.assign_order_to_driver(order.id, driver.id)
+      assert assigned.driver_id == driver.id
+    end
+  end
+
+  describe "a database failure while the assignment is written" do
+    test "automatic dispatch frees the courier it claimed" do
+      driver = online_driver(0.5, 100)
+      order = order!()
+      :ok = FailingAssignment.refuse!()
+
+      assert_raise Postgrex.Error, fn -> Dispatch.assign_order(order.id) end
+
+      assert {:ok, %{status: :online, active_orders_count: 0}} = Tracking.fetch_state(driver.id)
+      assert {:ok, %{status: :online}} = Tracking.set_status(driver.id, :online)
+      assert {:ok, %{status: :pending, driver_id: nil}} = Dispatch.fetch_order(order.id)
+    end
+
+    test "an administrator's assign frees the courier it claimed" do
+      driver = online_driver(0.5, 100)
+      order = order!()
+      :ok = FailingAssignment.refuse!()
+
+      assert_raise Postgrex.Error, fn -> Dispatch.assign_order_to_driver(order.id, driver.id) end
+
+      assert {:ok, %{status: :online, active_orders_count: 0}} = Tracking.fetch_state(driver.id)
+      assert {:ok, %{status: :online}} = Tracking.set_status(driver.id, :online)
+      assert {:ok, %{status: :pending, driver_id: nil}} = Dispatch.fetch_order(order.id)
+    end
+
+    test "a courier with a job keeps it when a second assignment fails" do
+      driver = online_driver(0.5, 100)
+      {:ok, pid} = DriverRegistry.whereis(driver.id)
+      :sys.replace_state(pid, fn state -> %{state | max_orders: 2} end)
+      first = assigned_order!()
+      second = order!()
+      :ok = FailingAssignment.refuse!()
+
+      assert_raise Postgrex.Error, fn -> Dispatch.assign_order(second.id) end
+
+      assert {:ok, %{status: :online, active_orders_count: 1}} = Tracking.fetch_state(driver.id)
+      assert {:ok, %{status: :assigned, driver_id: with_driver}} = Dispatch.fetch_order(first.id)
+      assert with_driver == driver.id
     end
   end
 

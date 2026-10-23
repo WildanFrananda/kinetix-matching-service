@@ -6,13 +6,13 @@ defmodule FleetPulseWeb.ErrorJSONTest do
              %{errors: %{detail: "Not Found"}, traceId: "-"}
   end
 
-  test "renders 500 without naming the failure, and says what was not changed" do
+  test "renders 500 without naming the failure, and claims nothing about what changed" do
     assert FleetPulseWeb.ErrorJSON.render("500.json", %{}) ==
              %{
                errors: %{
                  detail:
-                   "something went wrong handling this request. No dispatch, assignment or " <>
-                     "location was changed unless a previous response said so."
+                   "something went wrong handling this request. It may have taken effect " <>
+                     "before it failed: read the current state before repeating it."
                },
                traceId: "-"
              }
