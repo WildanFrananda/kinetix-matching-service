@@ -60,7 +60,7 @@ defmodule FleetPulse.MixProject do
       {:lazy_html, ">= 0.1.0", only: :test},
       {:daisyui,
        github: "saadeghi/daisyui",
-       tag: "v5.5.20",
+       tag: "v5.7.50",
        sparse: "packages/bundle",
        app: false,
        compile: false,
