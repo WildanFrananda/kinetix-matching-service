@@ -41,7 +41,7 @@ jobs:
       TEST_DB_NAME: kinetix_matching_test
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # The versions the Dockerfile builds with, so a green suite means the shipped image compiles.
       - uses: erlef/setup-beam@v1
@@ -49,7 +49,7 @@ jobs:
           elixir-version: "1.20.2"
           otp-version: "29.0.3"
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             deps
