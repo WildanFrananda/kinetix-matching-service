@@ -74,7 +74,7 @@ defmodule FleetPulse.MixProject do
       {:bcrypt_elixir, "~> 3.0"},
       {:joken, "~> 2.6"},
       {:hammer, "~> 7.0"},
-      {:dns_cluster, "~> 0.2.0"},
+      {:dns_cluster, "~> 0.3.1"},
       {:bandit, "~> 1.5"},
       {:grpc, "~> 1.0"},
       {:grpc_reflection, "~> 0.5"},
