@@ -3,6 +3,7 @@ defmodule FleetPulseWeb.Endpoint do
 
   @before_compile FleetPulseWeb.SocketAuthToken
   @before_compile FleetPulseWeb.HttpMetrics
+  @before_compile FleetPulseWeb.RequestTrace
 
   @drainer [batch_size: 1_000, batch_interval: 1_000, shutdown: 8_000]
 
@@ -29,7 +30,6 @@ defmodule FleetPulseWeb.Endpoint do
     plug Phoenix.Ecto.CheckRepoStatus, otp_app: :fleet_pulse
   end
 
-  plug Plug.RequestId
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
 
   plug Plug.Parsers,

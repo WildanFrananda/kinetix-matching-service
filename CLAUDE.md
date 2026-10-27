@@ -280,6 +280,17 @@ polling); the gateway's `/ws/v1/matching/driver` and `/ws/v1/matching/merchant` 
 The merchant channel only pushes: a message from the client is answered `unknown_event` (until
 2026-10-22 it crashed the channel).
 
+### Every answer names its own request
+
+`RequestTrace`, the outermost wrapper around the endpoint (outside `HttpMetrics`), gives each request its id
+before anything else runs, socket upgrades included: the client's `x-request-id` (Kong forwards it) when
+`Plug.RequestId` accepts it (20 to 200 bytes), a fresh one otherwise. It sets the response's `x-request-id`, the
+`:request_id` assign that `ErrorJSON`'s `traceId` reads, and the Logger metadata. Until 2026-10-27 `Plug.RequestId`
+ran as an endpoint plug, after Phoenix's socket dispatch, so a handshake's answers carried no `x-request-id` and a
+raise in `connect` (the database's 503, an unhandled 500) said `traceId: "-"`; the body read the process's Logger
+metadata, which held no earlier request's id only because Bandit clears the process dictionary between keep-alive
+requests (`http_1: [clear_process_dict: true]`, its default).
+
 ### An outage is never a business answer
 
 A database that cannot be reached is 503 on HTTP (`Plug.Exception` for `DBConnection.ConnectionError`), not
