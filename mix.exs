@@ -78,6 +78,7 @@ defmodule FleetPulse.MixProject do
       {:bandit, "~> 1.5"},
       {:grpc, "~> 1.0"},
       {:grpc_reflection, "~> 0.5"},
+      {:mint, "~> 1.11"},
       {:protobuf, "~> 0.13"},
       {:tz, "~> 0.28.4"},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},

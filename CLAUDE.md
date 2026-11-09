@@ -77,6 +77,19 @@ window never started and the merchant was never paid. Only order's own refusal (
 used to be reported as a refusal. The migration that added the columns queued every delivered job with an
 order number, so a delivery order missed before is reported once more.
 
+### Order is dialled with Mint, by its service name
+
+`OrderGrpc` connects with `adapter: GRPC.Client.Adapters.Mint` and `connect_timeout`. grpc 1.0 made both of its
+client adapters optional and still defaults to Gun, which left the lock on 2026-09-20, the day this client was
+written, so a connect that names no adapter fails in the connection process; and 1.0 validates connect options in the
+caller, so the `timeout:` key it was written with raised `ArgumentError` inside `DeliveryReporter` before any line
+naming the order was logged. No release ever reached order: production's first delivery (2026-11-08) stayed owed,
+order kept the order `PROCESSING_FULFILLMENT`, so no rating, no courier fee and no payout, and the reporter
+restarted every minute with nothing in the log but the crash. `mint` is a direct dependency for that reason. The
+configured `host:port` parses as an unknown URI scheme, so grpc's resolver falls back to dialling the name as given,
+and Mint checks order's certificate against that name. `OrderGrpcTest` dials a real gRPC server over mutual TLS by a
+service name it adds to `:inet_db`, because `FakeOrder`, which every other suite uses, never touches the transport.
+
 ### A delivery needs a photo matching can see in the bucket, stored as the courier hashed it
 
 `delivered` is refused without `pod_photo_url`, and the URL must name `pod/<this job's id>/<sha256>.jpg` in
@@ -309,4 +322,17 @@ against, is required too; it fell back to `example.com`, which refuses every bro
 `KINETIX_TIME_ZONE` is the platform's clock, an IANA name, the zone warehouse reads too: "delivered today" counts
 from midnight on it (`PlatformTimeZone`, on the `tz` database), and the application refuses to start on a name
 that is not a zone. It was the UTC day, which starts at 07:00 in Jakarta.
+
+### The lab seed writes deliveries no courier made
+
+`FleetPulse.LabSeed` (run as `/app/bin/fleet_pulse eval 'FleetPulse.Release.seed_courier_record("<principal>", 120,
+150)'` in the migrate container) writes delivered jobs for one approved courier so seal can issue a credential in the
+lab, where nobody delivers (infra `docs/SEAL-SERVICE.md`, SEAL-D15; procedure in docs-internal
+`operations/seal-credential-lab`). It writes only when `current_database()` ends in `_dev`: the lab's database is
+`kinetix_matching_dev`, production's `kinetix_matching`. Each job is inserted `picked_up`, its evidence row written,
+then the job updated to `delivered`, in one transaction, the order the evidence triggers demand; `delivered_at` is
+spread evenly over the span, the first the whole span before now, because seal counts days active from the first
+delivery. The jobs carry no order number, so nothing is reported to order, and no photo: the evidence hashes are
+SHA-256 of `kinetix-lab-seed:photo:<job id>` and `…:signature:…`, which no real proof can produce. The log is
+append-only, so seeded rows stay until the lab's volume goes.
 

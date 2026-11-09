@@ -28,7 +28,7 @@ defmodule FleetPulse.Clients.OrderGrpc do
   @spec dial(String.t(), String.t(), String.t(), DateTime.t()) ::
           :ok | {:error, FleetPulse.Clients.Order.error()}
   defp dial(host, order_number, driver_principal_id, delivered_at) do
-    case GRPC.Stub.connect(host, cred: credentials(), timeout: @connect_timeout) do
+    case GRPC.Stub.connect(host, connect_options()) do
       {:ok, channel} ->
         try do
           call(channel, order_number, driver_principal_id, delivered_at)
@@ -115,6 +115,15 @@ defmodule FleetPulse.Clients.OrderGrpc do
       %{count: 1},
       %{peer: @peer, grpc_method: @method, grpc_code: grpc_code}
     )
+  end
+
+  @spec connect_options() :: keyword()
+  defp connect_options do
+    [
+      cred: credentials(),
+      adapter: GRPC.Client.Adapters.Mint,
+      connect_timeout: @connect_timeout
+    ]
   end
 
   @spec credentials() :: GRPC.Credential.t()
