@@ -1,4 +1,4 @@
-defmodule FleetPulse.Repo.Migrations.DispatchesCarryTheAwb do
+defmodule KinetixMatching.Repo.Migrations.DispatchesCarryTheAwb do
   use Ecto.Migration
 
   @moduledoc """

@@ -1,0 +1,422 @@
+defmodule KinetixMatching.TrackingTest do
+  use KinetixMatching.DataCase, async: false
+
+  import KinetixMatching.TrackingFixtures
+
+  alias KinetixMatching.Dispatch.Order
+  alias KinetixMatching.Tracking
+  alias KinetixMatching.Tracking.Driver
+  alias KinetixMatching.Tracking.DriverRegistry
+  alias KinetixMatching.Tracking.DriverState
+  alias KinetixMatching.Tracking.StateCache
+
+  setup do
+    driver = driver_fixture()
+    on_exit(fn -> cleanup(driver.id) end)
+    %{driver: driver}
+  end
+
+  defp cleanup(driver_id) do
+    _ = Tracking.stop_tracking(driver_id)
+    _ = StateCache.delete(driver_id)
+    :ok
+  end
+
+  defp track!(driver) do
+    {:ok, pid} = Tracking.start_tracking(driver.id)
+    pid
+  end
+
+  defp await_new_pid(driver_id, old_pid, attempts \\ 100)
+  defp await_new_pid(_driver_id, _old_pid, 0), do: :timeout
+
+  defp await_new_pid(driver_id, old_pid, attempts) do
+    case DriverRegistry.whereis(driver_id) do
+      {:ok, pid} when pid != old_pid ->
+        pid
+
+      _not_yet ->
+        Process.sleep(10)
+        await_new_pid(driver_id, old_pid, attempts - 1)
+    end
+  end
+
+  describe "start_tracking/1" do
+    test "a cold start is off duty whatever the table says, and counts the jobs carried",
+         %{driver: driver} do
+      Repo.update_all(where(Driver, id: ^driver.id), set: [status: :busy])
+
+      {:ok, _job} =
+        %Order{}
+        |> Order.changeset(%{
+          pickup_latitude: -6.2,
+          pickup_longitude: 106.8,
+          dropoff_latitude: -6.9,
+          dropoff_longitude: 107.6
+        })
+        |> Ecto.Changeset.put_change(:status, :picked_up)
+        |> Ecto.Changeset.put_change(:driver_id, driver.id)
+        |> Repo.insert()
+
+      track!(driver)
+
+      assert {:ok, state} = Tracking.fetch_state(driver.id)
+      assert state.status == :offline
+      assert state.active_orders_count == 1
+      assert state.coordinates == nil
+
+      assert {:ok, %{status: :busy}} = Tracking.set_status(driver.id, :online)
+    end
+
+    test "is idempotent for an already tracked driver", %{driver: driver} do
+      pid = track!(driver)
+      assert {:ok, ^pid} = Tracking.start_tracking(driver.id)
+    end
+
+    test "refuses a driver that does not exist" do
+      assert {:error, :not_found} = Tracking.start_tracking(999_999_999)
+    end
+  end
+
+  describe "track_location/2" do
+    test "stores normalised telemetry", %{driver: driver} do
+      track!(driver)
+
+      assert :ok = Tracking.track_location(driver.id, telemetry_attrs(%{speed_kmh: 42}))
+
+      assert {:ok, state} = Tracking.fetch_state(driver.id)
+      assert state.coordinates == {-6.2, 106.816666}
+      assert state.speed_kmh === 42.0
+    end
+
+    test "rejects bad telemetry without disturbing the process", %{driver: driver} do
+      track!(driver)
+      {:ok, before} = Tracking.fetch_state(driver.id)
+
+      assert {:error, :invalid_telemetry} =
+               Tracking.track_location(driver.id, telemetry_attrs(%{latitude: 999.0}))
+
+      assert {:ok, ^before} = Tracking.fetch_state(driver.id)
+    end
+
+    test "reports an untracked driver", %{driver: driver} do
+      assert {:error, :not_found} = Tracking.track_location(driver.id, telemetry_attrs())
+    end
+  end
+
+  describe "set_status/2" do
+    test "writes through to both the database and the live process", %{driver: driver} do
+      track!(driver)
+
+      assert {:ok, updated} = Tracking.set_status(driver.id, :online)
+      assert updated.status == :online
+      assert {:ok, %{status: :online}} = Tracking.fetch_driver(driver.id)
+      assert {:ok, %{status: :online}} = Tracking.fetch_state(driver.id)
+    end
+
+    test "refuses busy from a driver carrying nothing, and leaves it as it was", %{driver: driver} do
+      track!(driver)
+      {:ok, _} = Tracking.set_status(driver.id, :online)
+
+      assert {:error, :no_active_job} = Tracking.set_status(driver.id, :busy)
+      assert {:ok, %{status: :online}} = Tracking.fetch_driver(driver.id)
+      assert {:ok, %{status: :online}} = Tracking.fetch_state(driver.id)
+    end
+
+    test "online for a driver carrying a full load is busy", %{driver: driver} do
+      track!(driver)
+      {:ok, _} = Tracking.set_status(driver.id, :online)
+      {:ok, _claimed} = DriverState.claim(driver.id)
+      {:ok, _} = Tracking.set_status(driver.id, :offline)
+
+      assert {:ok, %{status: :busy}} = Tracking.set_status(driver.id, :online)
+      assert {:error, :unavailable} = DriverState.claim(driver.id)
+    end
+
+    test "a job finished while off duty leaves the driver off duty and counts down", %{
+      driver: driver
+    } do
+      track!(driver)
+      {:ok, _} = Tracking.set_status(driver.id, :online)
+      {:ok, _claimed} = DriverState.claim(driver.id)
+      {:ok, _} = Tracking.set_status(driver.id, :offline)
+
+      :ok = DriverState.release(driver.id)
+
+      assert {:ok, %{status: :offline, active_orders_count: 0}} = Tracking.fetch_state(driver.id)
+      assert {:ok, %{status: :online}} = Tracking.set_status(driver.id, :online)
+    end
+
+    test "records the status even when nobody is tracking the driver", %{driver: driver} do
+      assert {:ok, _} = Tracking.set_status(driver.id, :online)
+      assert {:ok, %{status: :online}} = Tracking.fetch_driver(driver.id)
+    end
+
+    test "a cold restart with an empty cache takes the driver off duty", %{driver: driver} do
+      track!(driver)
+      {:ok, _} = Tracking.set_status(driver.id, :online)
+
+      :ok = Tracking.stop_tracking(driver.id)
+      assert {:error, :not_found} = StateCache.fetch(driver.id)
+
+      track!(driver)
+      assert {:ok, %{status: :offline}} = Tracking.fetch_state(driver.id)
+    end
+
+    test "the drivers row says what the live state decided, whichever way it changes", %{
+      driver: driver
+    } do
+      track!(driver)
+      row = fn -> Repo.get!(Driver, driver.id).status end
+
+      {:ok, _} = Tracking.set_status(driver.id, :online)
+      assert row.() == :online
+
+      {:ok, _claimed} = DriverState.claim(driver.id)
+      assert row.() == :busy
+
+      :ok = DriverState.release(driver.id)
+      {:ok, _} = Tracking.fetch_state(driver.id)
+      assert row.() == :online
+
+      {:ok, _} = Tracking.set_status(driver.id, :offline)
+      assert row.() == :offline
+    end
+
+    test "a cold start corrects a row left on duty", %{driver: driver} do
+      Repo.update_all(where(Driver, id: ^driver.id), set: [status: :online])
+
+      track!(driver)
+
+      assert {:ok, %{status: :offline}} = Tracking.fetch_state(driver.id)
+      assert Repo.get!(Driver, driver.id).status == :offline
+    end
+
+    test "starts the live process when nothing tracks the driver", %{driver: driver} do
+      assert {:ok, %{status: :online}} = Tracking.set_status(driver.id, :online)
+      assert {:ok, %{status: :online}} = Tracking.fetch_state(driver.id)
+    end
+  end
+
+  describe "stop_tracking/1" do
+    test "evicts the cache entry and announces the stop", %{driver: driver} do
+      driver_id = driver.id
+      track!(driver)
+      :ok = Tracking.subscribe_driver(driver_id)
+
+      assert :ok = Tracking.stop_tracking(driver_id)
+
+      assert_receive {:driver_stopped, ^driver_id}
+      assert {:error, :not_found} = StateCache.fetch(driver_id)
+    end
+  end
+
+  describe "crash recovery" do
+    test "an abnormal death keeps the cache and the replacement reuses it", %{driver: driver} do
+      pid = track!(driver)
+      :ok = Tracking.track_location(driver.id, telemetry_attrs())
+      {:ok, before} = Tracking.fetch_state(driver.id)
+
+      ref = Process.monitor(pid)
+      Process.exit(pid, :kill)
+      assert_receive {:DOWN, ^ref, :process, ^pid, :killed}
+
+      assert {:ok, _} = StateCache.fetch(driver.id)
+
+      new_pid = await_new_pid(driver.id, pid)
+      assert is_pid(new_pid)
+
+      assert {:ok, restored} = Tracking.fetch_state(driver.id)
+      assert restored.coordinates == before.coordinates
+    end
+  end
+
+  describe "broadcasts" do
+    test "the fleet topic sees every driver", %{driver: driver} do
+      driver_id = driver.id
+      :ok = Tracking.subscribe_fleet()
+
+      track!(driver)
+
+      assert_receive {:driver_updated, %{driver_id: ^driver_id}}
+    end
+
+    test "a driver topic ignores other drivers", %{driver: driver} do
+      other = driver_fixture()
+      on_exit(fn -> cleanup(other.id) end)
+
+      :ok = Tracking.subscribe_driver(driver.id)
+
+      track!(other)
+      :ok = Tracking.track_location(other.id, telemetry_attrs())
+
+      refute_receive {:driver_updated, _}, 100
+    end
+  end
+
+  describe "nearby/3" do
+    @centre {-6.1754, 106.8272}
+
+    setup do
+      Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
+      :ok
+    end
+
+    defp north({lat, lng}, km), do: {lat + km / 111.19492664455873, lng}
+
+    defp place!({lat, lng}, status, capacity_kg \\ 100) do
+      driver = driver_fixture(%{capacity_kg: capacity_kg})
+      on_exit(fn -> cleanup(driver.id) end)
+
+      {:ok, _pid} = Tracking.start_tracking(driver.id)
+      {:ok, _state} = Tracking.set_status(driver.id, :online)
+      :ok = Tracking.track_location(driver.id, telemetry_attrs(%{latitude: lat, longitude: lng}))
+      :ok = carry(driver.id, status)
+      {:ok, _state} = Tracking.fetch_state(driver.id)
+
+      driver
+    end
+
+    defp carry(_driver_id, :online), do: :ok
+
+    defp carry(driver_id, :busy) do
+      {:ok, %{status: :busy}} = DriverState.claim(driver_id)
+      :ok
+    end
+
+    test "returns online drivers inside the radius, nearest first" do
+      near = place!(north(@centre, 0.5), :online)
+      far = place!(north(@centre, 2.0), :online)
+      _outside = place!(north(@centre, 10.0), :online)
+
+      assert [{first, first_km}, {second, second_km}] = Tracking.nearby(@centre, 3.0)
+
+      assert first.driver_id == near.id
+      assert second.driver_id == far.id
+      assert_in_delta first_km, 0.5, 0.01
+      assert_in_delta second_km, 2.0, 0.01
+    end
+
+    test "decides membership by real distance, not by the bounding box" do
+      inside = place!(north(@centre, 2.99), :online)
+      _outside = place!(north(@centre, 3.01), :online)
+
+      assert [{state, _km}] = Tracking.nearby(@centre, 3.0)
+      assert state.driver_id == inside.id
+    end
+
+    test "skips drivers whose status does not match" do
+      _busy = place!(north(@centre, 0.5), :busy)
+      online = place!(north(@centre, 1.0), :online)
+
+      assert [{state, _km}] = Tracking.nearby(@centre, 3.0)
+      assert state.driver_id == online.id
+    end
+
+    test "status: :any accepts every availability" do
+      place!(north(@centre, 0.5), :busy)
+      place!(north(@centre, 1.0), :online)
+
+      assert length(Tracking.nearby(@centre, 3.0, status: :any)) == 2
+    end
+
+    test "skips drivers that have never reported a position" do
+      driver = driver_fixture()
+      on_exit(fn -> cleanup(driver.id) end)
+
+      {:ok, _pid} = Tracking.start_tracking(driver.id)
+      {:ok, _driver} = Tracking.set_status(driver.id, :online)
+
+      assert Tracking.nearby(@centre, 3.0) == []
+    end
+
+    test "limit keeps the nearest" do
+      near = place!(north(@centre, 0.5), :online)
+      place!(north(@centre, 1.0), :online)
+      place!(north(@centre, 2.0), :online)
+
+      assert [{state, _km}] = Tracking.nearby(@centre, 3.0, limit: 1)
+      assert state.driver_id == near.id
+    end
+
+    test "returns an empty list when the fleet is far away" do
+      place!(north(@centre, 50.0), :online)
+
+      assert Tracking.nearby(@centre, 3.0) == []
+    end
+
+    test "carries capacity through rehydration into memory" do
+      driver = place!(north(@centre, 0.5), :online, 750)
+
+      assert {:ok, state} = Tracking.fetch_state(driver.id)
+      assert state.capacity_kg == 750
+    end
+
+    test "skips drivers that cannot carry the load" do
+      _small = place!(north(@centre, 0.5), :online, 50)
+      big = place!(north(@centre, 2.0), :online, 500)
+
+      assert [{state, _km}] = Tracking.nearby(@centre, 3.0, min_capacity_kg: 200)
+      assert state.driver_id == big.id
+    end
+  end
+
+  describe "driver_for_principal/1" do
+    setup do
+      principal = "principal-#{System.unique_integer([:positive])}"
+      %{linked: active_driver_fixture(principal), principal: principal}
+    end
+
+    test "finds the driver its principal names", %{linked: linked, principal: principal} do
+      assert {:ok, found} = Tracking.driver_for_principal(principal)
+      assert found.id == linked.id
+    end
+
+    test "refuses a principal linked to nothing" do
+      assert {:error, :unlinked} = Tracking.driver_for_principal("principal-nobody")
+    end
+
+    test "refuses an empty principal, which is what an unlinked row holds" do
+      assert {:error, :unlinked} = Tracking.driver_for_principal("")
+    end
+
+    test "reports a registered-but-unapproved driver as pending, not as absent" do
+      principal = "principal-pending-#{System.unique_integer([:positive])}"
+      _pending = registered_driver_fixture(principal)
+
+      assert {:error, :pending_approval} = Tracking.driver_for_principal(principal)
+    end
+
+    test "registration binds the principal, so no operator step stands between the two" do
+      principal = "principal-bound-#{System.unique_integer([:positive])}"
+
+      assert {:ok, registered, :created} =
+               Tracking.register_driver_for_principal(principal, driver_attrs())
+
+      assert registered.principal_id == principal
+      assert registered.active == false
+    end
+
+    test "registering the same principal twice is one row, reported as already there" do
+      principal = "principal-twice-#{System.unique_integer([:positive])}"
+
+      assert {:ok, first, :created} =
+               Tracking.register_driver_for_principal(principal, driver_attrs())
+
+      assert {:ok, again, :existing} =
+               Tracking.register_driver_for_principal(principal, driver_attrs())
+
+      assert again.id == first.id
+    end
+
+    test "a principal_id in the request body is discarded, never trusted" do
+      principal = "principal-token-#{System.unique_integer([:positive])}"
+      forged = "principal-forged-#{System.unique_integer([:positive])}"
+
+      {:ok, registered, :created} =
+        Tracking.register_driver_for_principal(principal, driver_attrs(%{principal_id: forged}))
+
+      assert registered.principal_id == principal
+    end
+  end
+end

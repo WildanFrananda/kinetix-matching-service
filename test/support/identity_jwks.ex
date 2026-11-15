@@ -1,4 +1,4 @@
-defmodule FleetPulse.IdentityJwks do
+defmodule KinetixMatching.IdentityJwks do
   @moduledoc """
   Serves a JWKS the way identity does, and mints the RS256 tokens identity mints.
   """
@@ -25,7 +25,7 @@ defmodule FleetPulse.IdentityJwks do
         plug: {__MODULE__.Plug, document},
         scheme: :http,
         ip: {127, 0, 0, 1},
-        port: Application.get_env(:fleet_pulse, __MODULE__)[:port],
+        port: Application.get_env(:kinetix_matching, __MODULE__)[:port],
         startup_log: false
       )
 

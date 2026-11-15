@@ -1,4 +1,4 @@
-defmodule FleetPulse.Repo.Migrations.DropDriverNameAndPhone do
+defmodule KinetixMatching.Repo.Migrations.DropDriverNameAndPhone do
   @moduledoc """
   A driver's name and phone number belong to identity, which has held them in `profiles` all along.
   """

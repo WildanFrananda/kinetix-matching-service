@@ -1,9 +1,9 @@
-defmodule FleetPulse.FakeOrder do
+defmodule KinetixMatching.FakeOrder do
   @moduledoc """
   The order service, as the suite needs it: answering on command and counting what it was asked.
   """
 
-  @behaviour FleetPulse.Clients.Order
+  @behaviour KinetixMatching.Clients.Order
 
   @agent __MODULE__
 
@@ -27,7 +27,7 @@ defmodule FleetPulse.FakeOrder do
   @spec delivered_times() :: [DateTime.t()]
   def delivered_times, do: Agent.get(@agent, & &1.times) |> Enum.reverse()
 
-  @impl FleetPulse.Clients.Order
+  @impl KinetixMatching.Clients.Order
   def delivered(order_number, driver_principal_id, delivered_at) do
     Agent.get_and_update(@agent, fn state ->
       {

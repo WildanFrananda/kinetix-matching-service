@@ -1,4 +1,4 @@
-defmodule FleetPulse.Repo.Migrations.AddPasswordToDrivers do
+defmodule KinetixMatching.Repo.Migrations.AddPasswordToDrivers do
   use Ecto.Migration
 
   def change do

@@ -1,4 +1,4 @@
-defmodule FleetPulseWeb.ChannelCase do
+defmodule KinetixMatchingWeb.ChannelCase do
   @moduledoc """
   This module defines the test case to be used by channel tests.
 
@@ -12,15 +12,15 @@ defmodule FleetPulseWeb.ChannelCase do
 
   using do
     quote do
-      @endpoint FleetPulseWeb.Endpoint
+      @endpoint KinetixMatchingWeb.Endpoint
 
       import Phoenix.ChannelTest
-      import FleetPulseWeb.Endpoint
+      import KinetixMatchingWeb.Endpoint
     end
   end
 
   setup tags do
-    FleetPulse.DataCase.setup_sandbox(tags)
+    KinetixMatching.DataCase.setup_sandbox(tags)
     :ok
   end
 end

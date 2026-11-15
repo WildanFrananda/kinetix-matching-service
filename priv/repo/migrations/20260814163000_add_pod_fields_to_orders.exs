@@ -1,4 +1,4 @@
-defmodule FleetPulse.Repo.Migrations.AddPodFieldsToOrders do
+defmodule KinetixMatching.Repo.Migrations.AddPodFieldsToOrders do
   use Ecto.Migration
 
   def change do

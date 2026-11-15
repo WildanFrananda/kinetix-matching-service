@@ -1,4 +1,4 @@
-defmodule FleetPulse.Repo.Migrations.UniqueIndexLocationPings do
+defmodule KinetixMatching.Repo.Migrations.UniqueIndexLocationPings do
   use Ecto.Migration
 
   def up do

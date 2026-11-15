@@ -1,11 +1,11 @@
-defmodule FleetPulse.TrackingFixtures do
+defmodule KinetixMatching.TrackingFixtures do
   @moduledoc """
   Test data builders for the tracking domain.
   """
 
-  alias FleetPulse.Repo
-  alias FleetPulse.Tracking
-  alias FleetPulse.Tracking.Driver
+  alias KinetixMatching.Repo
+  alias KinetixMatching.Tracking
+  alias KinetixMatching.Tracking.Driver
 
   @type driver_attrs :: %{
           required(:vehicle_plate) => term(),

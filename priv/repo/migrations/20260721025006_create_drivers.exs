@@ -1,4 +1,4 @@
-defmodule FleetPulse.Repo.Migrations.CreateDrivers do
+defmodule KinetixMatching.Repo.Migrations.CreateDrivers do
   use Ecto.Migration
 
   def change do

@@ -1,4 +1,4 @@
-defmodule FleetPulse.Repo.Migrations.CreateAdmins do
+defmodule KinetixMatching.Repo.Migrations.CreateAdmins do
   use Ecto.Migration
 
   def change do

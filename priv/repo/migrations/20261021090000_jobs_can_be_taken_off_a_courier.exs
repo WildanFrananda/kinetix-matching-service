@@ -1,4 +1,4 @@
-defmodule FleetPulse.Repo.Migrations.JobsCanBeTakenOffACourier do
+defmodule KinetixMatching.Repo.Migrations.JobsCanBeTakenOffACourier do
   use Ecto.Migration
 
   @moduledoc """

@@ -1,11 +1,11 @@
-defmodule FleetPulse.ScratchDatabase do
+defmodule KinetixMatching.ScratchDatabase do
   @moduledoc """
   A migrated database of its own, for tests whose transactions must really commit: the sandbox never
   commits, so it cannot show what one transaction sees of another, and the evidence log can never be
   emptied again. The repository runs as a dynamic repo; every process that uses it calls `use!/1`.
   """
 
-  alias FleetPulse.Repo
+  alias KinetixMatching.Repo
 
   @type t :: %{name: String.t(), repo: pid()}
 

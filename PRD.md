@@ -1,4 +1,4 @@
-# Product Requirement Document (PRD): FleetPulse
+# Product Requirement Document (PRD): KinetixMatching
 
 **High-Frequency Driver Tracking & Dispatch Engine**
 
@@ -6,7 +6,7 @@
 
 ## 1. Executive Summary
 
-FleetPulse is a specialized, real-time driver tracking and dispatch engine built specifically for last-mile logistics and niche courier fleets. Traditional dispatch systems struggle with high-frequency GPS pinging, leading to database bottlenecks and delayed routing. FleetPulse leverages the Elixir/Phoenix ecosystem to handle concurrent WebSocket connections at scale. By maintaining driver state in-memory and utilizing Phoenix LiveView, FleetPulse delivers ultra-low latency tracking and interactive dispatch dashboards directly from the server, eliminating the need for a separate frontend SPA infrastructure.
+KinetixMatching is a specialized, real-time driver tracking and dispatch engine built specifically for last-mile logistics and niche courier fleets. Traditional dispatch systems struggle with high-frequency GPS pinging, leading to database bottlenecks and delayed routing. KinetixMatching leverages the Elixir/Phoenix ecosystem to handle concurrent WebSocket connections at scale. By maintaining driver state in-memory and utilizing Phoenix LiveView, KinetixMatching delivers ultra-low latency tracking and interactive dispatch dashboards directly from the server, eliminating the need for a separate frontend SPA infrastructure.
 
 ---
 
@@ -72,9 +72,9 @@ This system will strictly adhere to Phoenix Contexts, separating domain logic fr
 
 ### 6.1. System Contexts
 
-- **`FleetPulse.Tracking` Context:** Manages telemetry ingestion, GenServer driver state processes, and geofencing.
-- **`FleetPulse.Dispatch` Context:** Handles order assignment logic and evaluates driver availability.
-- **`FleetPulseWeb` (Web Layer):**
+- **`KinetixMatching.Tracking` Context:** Manages telemetry ingestion, GenServer driver state processes, and geofencing.
+- **`KinetixMatching.Dispatch` Context:** Handles order assignment logic and evaluates driver availability.
+- **`KinetixMatchingWeb` (Web Layer):**
   - *Endpoint & Channels:* Handles mobile app WebSocket connections.
   - *Live (LiveView Modules):* Manages the real-time Admin/Dispatcher dashboard UI.
 
@@ -141,7 +141,7 @@ cannot see.
 
 **Solution.** Emit `:telemetry` events at domain checkpoints (order created,
 assigned, picked up, delivered, cancelled, dispatch failed) and surface them as
-metrics in the existing `FleetPulseWeb.Telemetry` / LiveDashboard.
+metrics in the existing `KinetixMatchingWeb.Telemetry` / LiveDashboard.
 
 ### 9.3. Rate Limiting on Public Auth Endpoints — P1
 
@@ -163,7 +163,7 @@ retention window (e.g. 30 days), keeping the audit trail bounded.
 
 **Problem.** Currently, order creation is restricted to internal dispatchers via the Admin LiveView interface. External merchant applications cannot programmatically place delivery orders or track their active orders in real-time.
 
-**Solution.** Expose a dedicated Merchant API suite & Phoenix WebSocket Channel (`MerchantChannel`) to enable multi-tenant merchant applications to seamlessly integrate with FleetPulse:
+**Solution.** Expose a dedicated Merchant API suite & Phoenix WebSocket Channel (`MerchantChannel`) to enable multi-tenant merchant applications to seamlessly integrate with KinetixMatching:
 
 1. **Merchant Authentication & Schema Multi-Tenancy:**
    - Extend `Order` schema to include `merchant_id` for strict multi-tenant isolation.
@@ -171,7 +171,7 @@ retention window (e.g. 30 days), keeping the audit trail bounded.
 
 2. **Order Intake REST Endpoint (`POST /api/v1/merchant/orders`):**
    - Accept order payload (pickup coords, dropoff coords, weight_kg, merchant_order_ref).
-   - Trigger atomic order creation & automatic dispatch evaluation (`FleetPulse.Dispatch.create_order/1`).
+   - Trigger atomic order creation & automatic dispatch evaluation (`KinetixMatching.Dispatch.create_order/1`).
 
 3. **Real-Time Merchant Phoenix Channel (`merchant:orders:<merchant_id>`):**
    - Establish persistent WebSockets for real-time bidirectional status updates.

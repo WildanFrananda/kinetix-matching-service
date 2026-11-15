@@ -1,4 +1,4 @@
-defmodule FleetPulse.Repo.Migrations.AddMerchantIdToOrders do
+defmodule KinetixMatching.Repo.Migrations.AddMerchantIdToOrders do
   @moduledoc """
   Adds merchant_id column and index to the orders table for multi-tenant isolation.
   """

@@ -1,4 +1,4 @@
-defmodule FleetPulse.Repo.Migrations.CreateLocationPings do
+defmodule KinetixMatching.Repo.Migrations.CreateLocationPings do
   use Ecto.Migration
 
   def change do

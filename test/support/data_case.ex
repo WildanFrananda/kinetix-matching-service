@@ -1,4 +1,4 @@
-defmodule FleetPulse.DataCase do
+defmodule KinetixMatching.DataCase do
   @moduledoc """
   This module defines the setup for tests requiring
   access to the application's data layer.
@@ -10,7 +10,7 @@ defmodule FleetPulse.DataCase do
   we enable the SQL sandbox, so changes done to the database
   are reverted at the end of every test. If you are using
   PostgreSQL, you can even run database tests asynchronously
-  by setting `use FleetPulse.DataCase, async: true`, although
+  by setting `use KinetixMatching.DataCase, async: true`, although
   this option is not recommended for other databases.
   """
 
@@ -20,17 +20,17 @@ defmodule FleetPulse.DataCase do
 
   using do
     quote do
-      alias FleetPulse.Repo
+      alias KinetixMatching.Repo
 
       import Ecto
       import Ecto.Changeset
       import Ecto.Query
-      import FleetPulse.DataCase
+      import KinetixMatching.DataCase
     end
   end
 
   setup tags do
-    FleetPulse.DataCase.setup_sandbox(tags)
+    KinetixMatching.DataCase.setup_sandbox(tags)
     :ok
   end
 
@@ -39,7 +39,7 @@ defmodule FleetPulse.DataCase do
   """
   @spec setup_sandbox(map()) :: :ok
   def setup_sandbox(tags) do
-    pid = Sandbox.start_owner!(FleetPulse.Repo, shared: not tags[:async])
+    pid = Sandbox.start_owner!(KinetixMatching.Repo, shared: not tags[:async])
     on_exit(fn -> Sandbox.stop_owner(pid) end)
   end
 

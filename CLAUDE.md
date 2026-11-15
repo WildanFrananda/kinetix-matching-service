@@ -122,7 +122,7 @@ the Host header, so the gateway's storage route must keep the Host the phone sen
 
 ### The store is any S3 that keeps a SHA-256 checksum
 
-`FleetPulse.Storage.S3` speaks plain S3 through `SigV4`, and nothing in it is vendor-specific. Since 2026-10-18
+`KinetixMatching.Storage.S3` speaks plain S3 through `SigV4`, and nothing in it is vendor-specific. Since 2026-10-18
 the store is VersityGW, which replaced MinIO when MinIO's repositories were archived (infrastructure's
 `docs/OBJECT-STORAGE.md` §8). The configuration is `OBJECT_STORE_*`; the store-backed tests are tagged
 `:object_store` and run when `OBJECT_STORE_TEST_ENDPOINT`, `_ACCESS_KEY` and `_SECRET_KEY` name a store. A
@@ -144,7 +144,7 @@ The log is the notary's evidence of delivery (notary PLAN decision 38), read thr
 `fulfillment.v1.DeliveryEvidenceService/DeliveriesSince`. Its cursor is `(transaction_id xid8, sequence)` and it
 serves only rows below `pg_snapshot_xmin(pg_current_snapshot())`, so a row whose transaction commits after a later
 one's can never be skipped; a transaction left open anywhere in the cluster holds the feed back, it never makes
-it skip. The feed tests run in a scratch database of their own (`FleetPulse.ScratchDatabase`), because the
+it skip. The feed tests run in a scratch database of their own (`KinetixMatching.ScratchDatabase`), because the
 sandbox never commits and the log can never be emptied.
 
 ### Each caller reaches only the RPCs it makes
@@ -325,7 +325,7 @@ that is not a zone. It was the UTC day, which starts at 07:00 in Jakarta.
 
 ### The lab seed writes deliveries no courier made
 
-`FleetPulse.LabSeed` (run as `/app/bin/fleet_pulse eval 'FleetPulse.Release.seed_courier_record("<principal>", 120,
+`KinetixMatching.LabSeed` (run as `/app/bin/kinetix_matching eval 'KinetixMatching.Release.seed_courier_record("<principal>", 120,
 150)'` in the migrate container) writes delivered jobs for one approved courier so seal can issue a credential in the
 lab, where nobody delivers (infra `docs/SEAL-SERVICE.md`, SEAL-D15; procedure in docs-internal
 `operations/seal-credential-lab`). It writes only when `current_database()` ends in `_dev`: the lab's database is

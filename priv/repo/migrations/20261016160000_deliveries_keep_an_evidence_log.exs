@@ -1,4 +1,4 @@
-defmodule FleetPulse.Repo.Migrations.DeliveriesKeepAnEvidenceLog do
+defmodule KinetixMatching.Repo.Migrations.DeliveriesKeepAnEvidenceLog do
   use Ecto.Migration
 
   @moduledoc """

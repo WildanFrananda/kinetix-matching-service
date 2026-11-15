@@ -1,4 +1,4 @@
-defmodule FleetPulse.Repo.Migrations.LinkOrdersToPlatformOrder do
+defmodule KinetixMatching.Repo.Migrations.LinkOrdersToPlatformOrder do
   @moduledoc """
   Gives a fleet job the order number it is delivering.
   """
