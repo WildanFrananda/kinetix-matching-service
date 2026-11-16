@@ -1,11 +1,11 @@
-defmodule FleetPulse.FakeStorage do
+defmodule KinetixMatching.FakeStorage do
   @moduledoc """
   The proof-of-delivery bucket, as the suite needs it: an object holds the bytes put through its upload
   address and the checksum the store would have stored for them, an object can be put there without
   one, and the bucket can be made unreachable.
   """
 
-  @behaviour FleetPulse.Storage
+  @behaviour KinetixMatching.Storage
 
   @agent __MODULE__
   @base "https://storage.kinetix.test/kinetix-pod/"
@@ -30,7 +30,7 @@ defmodule FleetPulse.FakeStorage do
   @spec unreachable() :: :ok
   def unreachable, do: Agent.update(@agent, &%{&1 | reachable: false})
 
-  @impl FleetPulse.Storage
+  @impl KinetixMatching.Storage
   def upload(key, sha256) do
     %{
       url: @base <> key <> "?X-Amz-Signature=upload",
@@ -38,17 +38,17 @@ defmodule FleetPulse.FakeStorage do
     }
   end
 
-  @impl FleetPulse.Storage
+  @impl KinetixMatching.Storage
   def read_url(key), do: @base <> key <> "?X-Amz-Signature=read"
 
-  @impl FleetPulse.Storage
+  @impl KinetixMatching.Storage
   def object_url(key), do: @base <> key
 
-  @impl FleetPulse.Storage
+  @impl KinetixMatching.Storage
   def key_of(@base <> key), do: {:ok, key}
   def key_of(_url), do: :error
 
-  @impl FleetPulse.Storage
+  @impl KinetixMatching.Storage
   def checksum(key) do
     Agent.get(@agent, fn
       %{reachable: false} -> {:error, :unavailable}
@@ -57,7 +57,7 @@ defmodule FleetPulse.FakeStorage do
     end)
   end
 
-  @impl FleetPulse.Storage
+  @impl KinetixMatching.Storage
   def leading_bytes(key, count) do
     Agent.get(@agent, fn
       %{reachable: false} ->
@@ -71,7 +71,7 @@ defmodule FleetPulse.FakeStorage do
     end)
   end
 
-  @spec store(String.t(), FleetPulse.Storage.checksum(), binary()) :: :ok
+  @spec store(String.t(), KinetixMatching.Storage.checksum(), binary()) :: :ok
   defp store(url, checksum, bytes) do
     {:ok, key} = key_of(url)
     object = %{checksum: checksum, bytes: bytes}

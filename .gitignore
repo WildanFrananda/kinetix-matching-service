@@ -23,7 +23,7 @@ erl_crash.dump
 /tmp/
 
 # Ignore package tarball (built via "mix hex.build").
-fleet_pulse-*.tar
+kinetix_matching-*.tar
 
 # Ignore assets that are produced by build tools.
 /priv/static/assets/
@@ -44,4 +44,4 @@ npm-debug.log
 # bin/sync-contracts and mix protoc — never committed, because a copy of a contract inside a
 # service repository is what kinetix-contracts exists to remove.
 /.contracts/
-/lib/fleet_pulse/proto/
+/lib/kinetix_matching/proto/

@@ -1,4 +1,4 @@
-defmodule FleetPulse.Repo.Migrations.DropAdmins do
+defmodule KinetixMatching.Repo.Migrations.DropAdmins do
   @moduledoc """
   Removes the local operator account table.
 

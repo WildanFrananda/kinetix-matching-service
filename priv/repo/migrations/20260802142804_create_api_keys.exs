@@ -1,4 +1,4 @@
-defmodule FleetPulse.Repo.Migrations.CreateApiKeys do
+defmodule KinetixMatching.Repo.Migrations.CreateApiKeys do
   use Ecto.Migration
 
   def change do

@@ -9,11 +9,11 @@ High-performance real-time courier matching engine, fleet GPS telemetry streamin
 1. **Dependency Vulnerability Remediation**:
    - Upgraded Hex dependencies (`bandit 1.12.5`, `postgrex 0.22.4`, `phoenix 1.8.12`, `ecto 3.14.2`), patching Critical Remote Code Execution (RCE) and High Denial of Service (DoS) advisories.
 2. **OTP Supervision Tree & Active gRPC Server (`:50053`)**:
-   - Configured `FleetPulse.GrpcEndpoint` and registered `{GRPC.Server.Supervisor, endpoint: FleetPulse.GrpcEndpoint, port: 50053}` in `FleetPulse.Application` OTP children list so the gRPC server actively listens on port `:50053`.
+   - Configured `KinetixMatching.GrpcEndpoint` and registered `{GRPC.Server.Supervisor, endpoint: KinetixMatching.GrpcEndpoint, port: 50053}` in `KinetixMatching.Application` OTP children list so the gRPC server actively listens on port `:50053`.
 3. **Single Source of Truth Identity Integration**:
-   - `FleetPulse.Clients.IdentityClient` connects to `kinetix-identity-service:50052` for driver token validation and profile lookup, resolving identity sovereignty violations.
+   - `KinetixMatching.Clients.IdentityClient` connects to `kinetix-identity-service:50052` for driver token validation and profile lookup, resolving identity sovereignty violations.
 4. **Clean Driver Telemetry Data (No Hardcoded Fallbacks)**:
-   - Removed hardcoded fallback strings `"081299887766"` and `"B 1234 KIN"` from `FleetPulse.CourierTelemetryServer`.
+   - Removed hardcoded fallback strings `"081299887766"` and `"B 1234 KIN"` from `KinetixMatching.CourierTelemetryServer`.
 5. **100% ExUnit Test Suite Verification**:
    - Executed `mix test` ➔ **`221 passed, 0 failures (100% Passed)`**.
 
@@ -24,7 +24,7 @@ High-performance real-time courier matching engine, fleet GPS telemetry streamin
 ```
 kinetix-matching-service/
 ├── lib/
-│   ├── fleet_pulse/
+│   ├── kinetix_matching/
 │   │   ├── application.ex              # OTP Application Supervision Tree
 │   │   ├── grpc_endpoint.ex            # gRPC Endpoint Configuration (:50053)
 │   │   ├── dispatch.ex                 # Core Order Dispatch Domain
@@ -37,7 +37,7 @@ kinetix-matching-service/
 │   │   ├── servers/
 │   │   │   └── courier_telemetry_server.ex # gRPC Courier Telemetry Handler
 │   │   └── proto/                      # Protobuf Modules
-│   └── fleet_pulse_web/
+│   └── kinetix_matching_web/
 │       ├── channels/                   # Phoenix WebSockets & Channels
 │       │   ├── driver_channel.ex
 │       │   └── merchant_channel.ex

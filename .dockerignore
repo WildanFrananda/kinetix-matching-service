@@ -64,4 +64,4 @@ config/master.key
 #
 # .gitignore already lists this path; three files predate that rule and are still tracked. Until
 # they are untracked, this is what keeps them out of the image.
-/lib/fleet_pulse/proto/
+/lib/kinetix_matching/proto/

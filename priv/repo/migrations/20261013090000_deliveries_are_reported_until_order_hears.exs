@@ -1,4 +1,4 @@
-defmodule FleetPulse.Repo.Migrations.DeliveriesAreReportedUntilOrderHears do
+defmodule KinetixMatching.Repo.Migrations.DeliveriesAreReportedUntilOrderHears do
   use Ecto.Migration
 
   @moduledoc """

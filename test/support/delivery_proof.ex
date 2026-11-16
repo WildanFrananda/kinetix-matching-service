@@ -1,11 +1,11 @@
-defmodule FleetPulse.DeliveryProof do
+defmodule KinetixMatching.DeliveryProof do
   @moduledoc """
   A JPEG photo uploaded to the proof-of-delivery bucket for a fleet job, and a signature drawn on the
   phone, as a delivering courier would send them.
   """
 
-  alias FleetPulse.Dispatch.Proof
-  alias FleetPulse.FakeStorage
+  alias KinetixMatching.Dispatch.Proof
+  alias KinetixMatching.FakeStorage
 
   @png <<0x89, ?P, ?N, ?G, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, ?I, ?H, ?D, ?R>>
 

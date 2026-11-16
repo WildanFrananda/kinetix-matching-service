@@ -1,6 +1,6 @@
 import Config
 
-config :fleet_pulse, FleetPulse.Repo,
+config :kinetix_matching, KinetixMatching.Repo,
   username: System.fetch_env!("DB_USERNAME"),
   password: System.fetch_env!("DB_PASSWORD"),
   hostname: System.get_env("DB_HOST") || "localhost",
@@ -13,7 +13,7 @@ config :fleet_pulse, FleetPulse.Repo,
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
-config :fleet_pulse, FleetPulseWeb.Endpoint,
+config :kinetix_matching, KinetixMatchingWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
   secret_key_base:
     System.get_env("SECRET_KEY_BASE") ||
@@ -21,16 +21,19 @@ config :fleet_pulse, FleetPulseWeb.Endpoint,
   server: false
 
 # In test we don't send emails
-config :fleet_pulse, FleetPulse.Mailer, adapter: Swoosh.Adapters.Test
+config :kinetix_matching, KinetixMatching.Mailer, adapter: Swoosh.Adapters.Test
 
-config :fleet_pulse, FleetPulse.Tracking.PersistenceBatcher, enabled: false
+config :kinetix_matching, KinetixMatching.Tracking.PersistenceBatcher, enabled: false
 
-config :fleet_pulse, FleetPulse.Tracking.IdleReaper, enabled: false
+config :kinetix_matching, KinetixMatching.Tracking.IdleReaper, enabled: false
 
-config :fleet_pulse, FleetPulse.Tracking.PingRetention, enabled: false
+config :kinetix_matching, KinetixMatching.Tracking.PingRetention, enabled: false
 
-config :fleet_pulse, FleetPulse.Dispatch.ReDispatcher, enabled: false, debounce_ms: 60_000
-config :fleet_pulse, FleetPulse.Dispatch.DeliveryReporter, enabled: false
+config :kinetix_matching, KinetixMatching.Dispatch.ReDispatcher,
+  enabled: false,
+  debounce_ms: 60_000
+
+config :kinetix_matching, KinetixMatching.Dispatch.DeliveryReporter, enabled: false
 
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false
@@ -46,17 +49,20 @@ config :phoenix,
   sort_verified_routes_query_params: true
 
 # See config/config.exs — the gRPC server does not bind a port under test.
-config :fleet_pulse, FleetPulse.IdentityJwks, port: 4444
+config :kinetix_matching, KinetixMatching.IdentityJwks, port: 4444
 
 System.put_env("JWT_ISSUER", System.get_env("JWT_ISSUER") || "https://identity.kinetix.local")
 System.put_env("JWT_AUDIENCE", System.get_env("JWT_AUDIENCE") || "kinetix")
 System.put_env("IDENTITY_JWKS_URL", "http://127.0.0.1:4444/.well-known/jwks.json")
 System.put_env("IDENTITY_HTTP_URL", System.get_env("IDENTITY_HTTP_URL") || "http://127.0.0.1:1")
 
-config :fleet_pulse, start_grpc_server: false
+config :kinetix_matching, start_grpc_server: false
 
 config :swoosh, :api_client, false
 
-config :fleet_pulse, FleetPulse.Clients.Order, impl: FleetPulse.FakeOrder
-config :fleet_pulse, :time_zone, "Asia/Jakarta"
-config :fleet_pulse, FleetPulse.Storage, impl: FleetPulse.FakeStorage
+config :kinetix_matching, KinetixMatching.Clients.Order, impl: KinetixMatching.FakeOrder
+config :kinetix_matching, :time_zone, "Asia/Jakarta"
+config :kinetix_matching, KinetixMatching.Storage, impl: KinetixMatching.FakeStorage
+
+config :kinetix_matching, KinetixMatching.Tracking.PositionPublisher,
+  impl: KinetixMatching.FakePositionPublisher

@@ -1,4 +1,4 @@
-defmodule FleetPulse.Repo.Migrations.CreateGeocodedAddresses do
+defmodule KinetixMatching.Repo.Migrations.CreateGeocodedAddresses do
   @moduledoc """
   Remembers what an address resolved to, so the platform asks a stranger once.
   """

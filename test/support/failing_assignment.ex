@@ -1,11 +1,11 @@
-defmodule FleetPulse.FailingAssignment do
+defmodule KinetixMatching.FailingAssignment do
   @moduledoc """
   Makes Postgres raise on every write that assigns a job, inside the test's own sandbox transaction,
   so an assignment fails the way it does when the database fails while the transaction runs. The
   sandbox rolls the trigger back with everything else.
   """
 
-  alias FleetPulse.Repo
+  alias KinetixMatching.Repo
 
   @spec refuse!() :: :ok
   def refuse! do

@@ -1,4 +1,4 @@
-defmodule FleetPulse.Repo.Migrations.DropApiKeys do
+defmodule KinetixMatching.Repo.Migrations.DropApiKeys do
   @moduledoc """
   Removes the partner API key table.
 

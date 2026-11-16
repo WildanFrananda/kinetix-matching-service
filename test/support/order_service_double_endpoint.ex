@@ -1,9 +1,9 @@
-defmodule FleetPulse.OrderServiceDoubleEndpoint do
+defmodule KinetixMatching.OrderServiceDoubleEndpoint do
   @moduledoc """
-  Serves `FleetPulse.OrderServiceDouble`.
+  Serves `KinetixMatching.OrderServiceDouble`.
   """
 
   use GRPC.Endpoint
 
-  run(FleetPulse.OrderServiceDouble)
+  run(KinetixMatching.OrderServiceDouble)
 end

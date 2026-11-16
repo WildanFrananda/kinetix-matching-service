@@ -28,7 +28,7 @@ RUN set -eu; \
 RUN mix deps.get
 
 COPY bin ./bin
-# Copied before the generation step below, which writes into lib/fleet_pulse/proto. The runner no
+# Copied before the generation step below, which writes into lib/kinetix_matching/proto. The runner no
 # longer mounts lib/ over this: a mount would hide the generated wire types and the suite would
 # compile against nothing.
 COPY lib ./lib

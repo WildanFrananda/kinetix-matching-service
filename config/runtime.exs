@@ -12,18 +12,18 @@ import Config
 # If you use `mix release`, you need to explicitly enable the server
 # by passing the PHX_SERVER=true when you start it:
 #
-#     PHX_SERVER=true bin/fleet_pulse start
+#     PHX_SERVER=true bin/kinetix_matching start
 #
 # Alternatively, you can use `mix phx.gen.release` to generate a `bin/server`
 # script that automatically sets the env var above.
 if System.get_env("PHX_SERVER") do
-  config :fleet_pulse, FleetPulseWeb.Endpoint, server: true
+  config :kinetix_matching, KinetixMatchingWeb.Endpoint, server: true
 end
 
-config :fleet_pulse, FleetPulseWeb.Endpoint,
+config :kinetix_matching, KinetixMatchingWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
-config :logger, :default_formatter, format: {FleetPulse.Observability.LogFormatter, :format}
+config :logger, :default_formatter, format: {KinetixMatching.Observability.LogFormatter, :format}
 
 case System.get_env("LOG_LEVEL") do
   nil ->
@@ -48,13 +48,29 @@ required = fn name, what ->
 end
 
 if config_env() != :test do
-  config :fleet_pulse, FleetPulse.Clients.OrderGrpc,
+  config :kinetix_matching, KinetixMatching.Clients.OrderGrpc,
     host:
       required.("ORDER_GRPC_HOST", "the host:port of order's gRPC server, told of every delivery")
 
-  config :fleet_pulse,
+  config :kinetix_matching,
          :time_zone,
          required.("KINETIX_TIME_ZONE", "the IANA zone the platform's day is counted in")
+
+  case System.get_env("REDIS_HOST") do
+    host when is_binary(host) and host != "" ->
+      config :kinetix_matching, KinetixMatching.Tracking.RedisPositionPublisher,
+        host: host,
+        port:
+          String.to_integer(
+            required.("REDIS_PORT", "Redis TCP port for courier live position Pub/Sub")
+          ),
+        username: System.get_env("REDIS_USER"),
+        password:
+          required.("REDIS_PASSWORD", "Redis ACL password for courier live position Pub/Sub")
+
+    _unset ->
+      :ok
+  end
 end
 
 if config_env() == :prod do
@@ -67,7 +83,7 @@ if config_env() == :prod do
 
   maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
 
-  config :fleet_pulse, FleetPulse.Repo,
+  config :kinetix_matching, KinetixMatching.Repo,
     # ssl: true,
     url: database_url,
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
@@ -87,7 +103,7 @@ if config_env() == :prod do
       You can generate one by calling: mix phx.gen.secret
       """
 
-  config :fleet_pulse, FleetPulse.Storage.S3,
+  config :kinetix_matching, KinetixMatching.Storage.S3,
     endpoint: System.fetch_env!("OBJECT_STORE_ENDPOINT"),
     public_url: System.fetch_env!("OBJECT_STORE_PUBLIC_URL"),
     bucket: System.fetch_env!("OBJECT_STORE_POD_BUCKET"),
@@ -101,9 +117,9 @@ if config_env() == :prod do
       "the public host of this endpoint's URL, which a browser socket's Origin must match"
     )
 
-  config :fleet_pulse, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
+  config :kinetix_matching, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
-  config :fleet_pulse, FleetPulseWeb.Endpoint,
+  config :kinetix_matching, KinetixMatchingWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
     http: [
       # Enable IPv6 and bind on all interfaces.
@@ -119,7 +135,7 @@ if config_env() == :prod do
   # To get SSL working, you will need to add the `https` key
   # to your endpoint configuration:
   #
-  #     config :fleet_pulse, FleetPulseWeb.Endpoint,
+  #     config :kinetix_matching, KinetixMatchingWeb.Endpoint,
   #       https: [
   #         ...,
   #         port: 443,
@@ -141,7 +157,7 @@ if config_env() == :prod do
   # We also recommend setting `force_ssl` in your config/prod.exs,
   # ensuring no data is ever sent via http, always redirecting to https:
   #
-  #     config :fleet_pulse, FleetPulseWeb.Endpoint,
+  #     config :kinetix_matching, KinetixMatchingWeb.Endpoint,
   #       force_ssl: [hsts: true]
   #
   # Check `Plug.SSL` for all available options in `force_ssl`.
@@ -151,7 +167,7 @@ if config_env() == :prod do
   # In production you need to configure the mailer to use a different adapter.
   # Here is an example configuration for Mailgun:
   #
-  #     config :fleet_pulse, FleetPulse.Mailer,
+  #     config :kinetix_matching, KinetixMatching.Mailer,
   #       adapter: Swoosh.Adapters.Mailgun,
   #       api_key: System.get_env("MAILGUN_API_KEY"),
   #       domain: System.get_env("MAILGUN_DOMAIN")

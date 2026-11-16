@@ -1,4 +1,4 @@
-defmodule FleetPulse.Repo.Migrations.AddPrincipalIdToDrivers do
+defmodule KinetixMatching.Repo.Migrations.AddPrincipalIdToDrivers do
   @moduledoc """
   Links a driver row to the identity principal that authenticates as it, and removes the local
   password.

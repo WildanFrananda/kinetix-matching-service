@@ -1,12 +1,12 @@
-defmodule FleetPulse.OrderServiceDouble do
+defmodule KinetixMatching.OrderServiceDouble do
   @moduledoc """
   Order's gRPC server as the client suite needs it: it records each delivery it is told of and accepts it.
   """
 
-  use GRPC.Server, service: FleetPulse.Proto.Order.V1.OrderService.Service
+  use GRPC.Server, service: KinetixMatching.Proto.Order.V1.OrderService.Service
 
-  alias FleetPulse.Proto.Order.V1.OrderDeliveredRequest
-  alias FleetPulse.Proto.Order.V1.OrderDeliveredResponse
+  alias KinetixMatching.Proto.Order.V1.OrderDeliveredRequest
+  alias KinetixMatching.Proto.Order.V1.OrderDeliveredResponse
 
   @listener :order_service_double_listener
 

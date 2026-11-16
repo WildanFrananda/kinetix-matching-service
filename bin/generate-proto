@@ -6,7 +6,7 @@
 # compiling against a set that no longer matched, and the build died on an undefined Proto module.
 # A list duplicated is a list that drifts.
 #
-# Run bin/sync-contracts first; this reads .contracts/proto and writes lib/fleet_pulse/proto, both
+# Run bin/sync-contracts first; this reads .contracts/proto and writes lib/kinetix_matching/proto, both
 # of which are gitignored.
 set -eu
 
@@ -33,7 +33,7 @@ if [ -z "$INCLUDE" ]; then
 fi
 [ -n "$INCLUDE" ] || { echo "cannot locate protobuf's include directory; set PROTOC_INCLUDE"; exit 1; }
 
-mkdir -p lib/fleet_pulse/proto
+mkdir -p lib/kinetix_matching/proto
 
 sources=""
 for package in $PACKAGES; do
@@ -43,7 +43,7 @@ for package in $PACKAGES; do
 done
 
 # shellcheck disable=SC2086
-protoc --elixir_out=plugins=grpc,package_prefix=fleet_pulse.proto:lib/fleet_pulse/proto \
+protoc --elixir_out=plugins=grpc,package_prefix=kinetix_matching.proto:lib/kinetix_matching/proto \
   -I .contracts/proto -I "$INCLUDE" $sources
 
 # Asserting each package, not merely that some .pb.ex exists. Three generated files are committed
@@ -52,7 +52,7 @@ protoc --elixir_out=plugins=grpc,package_prefix=fleet_pulse.proto:lib/fleet_puls
 # happened to be checked in.
 for package in $PACKAGES; do
   name="$(basename "$package")"
-  find lib/fleet_pulse/proto -name "$name.pb.ex" | grep -q . || {
+  find lib/kinetix_matching/proto -name "$name.pb.ex" | grep -q . || {
     echo "protoc produced no Elixir for $package"
     exit 1
   }

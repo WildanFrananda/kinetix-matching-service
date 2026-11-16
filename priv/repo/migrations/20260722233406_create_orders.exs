@@ -1,4 +1,4 @@
-defmodule FleetPulse.Repo.Migrations.CreateOrders do
+defmodule KinetixMatching.Repo.Migrations.CreateOrders do
   use Ecto.Migration
 
   def change do

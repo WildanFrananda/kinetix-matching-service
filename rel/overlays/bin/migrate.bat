@@ -1,1 +1,1 @@
-call "%~dp0\fleet_pulse" eval FleetPulse.Release.migrate
+call "%~dp0\kinetix_matching" eval KinetixMatching.Release.migrate

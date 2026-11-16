@@ -1,4 +1,4 @@
-defmodule FleetPulse.Repo.Migrations.KeyOrdersOnMerchantPrincipal do
+defmodule KinetixMatching.Repo.Migrations.KeyOrdersOnMerchantPrincipal do
   @moduledoc """
   Orders stop naming their merchant by identity's row id.
 

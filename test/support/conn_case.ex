@@ -1,4 +1,4 @@
-defmodule FleetPulseWeb.ConnCase do
+defmodule KinetixMatchingWeb.ConnCase do
   @moduledoc """
   This module defines the test case to be used by
   tests that require setting up a connection.
@@ -6,18 +6,18 @@ defmodule FleetPulseWeb.ConnCase do
 
   use ExUnit.CaseTemplate
 
-  alias FleetPulse.IdentityJwks
-  alias FleetPulse.Security.AccessClaims
+  alias KinetixMatching.IdentityJwks
+  alias KinetixMatching.Security.AccessClaims
 
   using do
     quote do
-      @endpoint FleetPulseWeb.Endpoint
+      @endpoint KinetixMatchingWeb.Endpoint
 
-      use FleetPulseWeb, :verified_routes
+      use KinetixMatchingWeb, :verified_routes
 
       import Plug.Conn
       import Phoenix.ConnTest
-      import FleetPulseWeb.ConnCase
+      import KinetixMatchingWeb.ConnCase
     end
   end
 
@@ -41,7 +41,7 @@ defmodule FleetPulseWeb.ConnCase do
   end
 
   setup tags do
-    FleetPulse.DataCase.setup_sandbox(tags)
+    KinetixMatching.DataCase.setup_sandbox(tags)
     {:ok, conn: Phoenix.ConnTest.build_conn()}
   end
 end

@@ -1,4 +1,4 @@
-defmodule FleetPulse.Repo.Migrations.DropGeocodedAddresses do
+defmodule KinetixMatching.Repo.Migrations.DropGeocodedAddresses do
   @moduledoc """
   The fleet stops remembering where people live.
   """

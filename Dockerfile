@@ -66,7 +66,7 @@ COPY bin ./bin
 # in the contract changed nothing here until somebody noticed.
 #
 # `package_prefix` keeps the module names the server code already uses
-# (FleetPulse.Proto.Fleet.V1.*), so this is a change of SOURCE, not a rename of everything.
+# (KinetixMatching.Proto.Fleet.V1.*), so this is a change of SOURCE, not a rename of everything.
 RUN apt-get update \
   && apt-get install --no-install-recommends -y git protobuf-compiler libprotobuf-dev \
   && rm -rf /var/lib/apt/lists/* \
@@ -119,13 +119,13 @@ RUN chown nobody /app
 ENV MIX_ENV="prod"
 
 # Only copy the final release from the build stage
-COPY --from=builder --chown=nobody:root /app/_build/${MIX_ENV}/rel/fleet_pulse ./
+COPY --from=builder --chown=nobody:root /app/_build/${MIX_ENV}/rel/kinetix_matching ./
 
 USER nobody
 
 
 # Probe the endpoint the service actually ships. This used to run `Repo.query!("SELECT 1")` over
-# `fleet_pulse rpc`, which asked the same question of the database but never touched /health/ready
+# `kinetix_matching rpc`, which asked the same question of the database but never touched /health/ready
 # — so the endpoint every other service is probed on sat unexercised here and could rot unnoticed.
 # curl is in the runner image for this one purpose.
 HEALTHCHECK --interval=10s --timeout=10s --start-period=30s --retries=3 \
