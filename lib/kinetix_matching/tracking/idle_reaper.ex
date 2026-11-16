@@ -1,24 +1,6 @@
 defmodule KinetixMatching.Tracking.IdleReaper do
   @moduledoc """
   Stops driver processes that have gone quiet.
-
-  `DriverChannel` deliberately leaves a `DriverState` running when its channel
-  dies, so a reconnect keeps its warm position instead of re-reading Postgres.
-  Nothing else ever stops those processes. Without this reaper a driver who
-  never comes back keeps its process AND its cache entry for the life of the
-  node — and `PersistenceBatcher` re-persists that frozen position every
-  interval, forever.
-
-  Only `:offline` drivers are eligible. An `:online` or `:busy` driver has a
-  live channel however quiet it happens to be, and killing it would break a
-  working session.
-
-  ## Two-stage decision
-
-  The ETS scan is a cheap way to find CANDIDATES, but it can be stale by the
-  time we act. The binding decision is re-made inside each candidate process
-  by `DriverState.stop_if_idle/2`, which reads its own current state. That is
-  the only place where "is this driver idle" can be answered without a race.
   """
 
   use GenServer
@@ -40,9 +22,6 @@ defmodule KinetixMatching.Tracking.IdleReaper do
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
-  @doc """
-  Runs a sweep immediately instead of waiting for the next tick.
-  """
   @spec reap_now() :: {:ok, non_neg_integer()}
   def reap_now, do: GenServer.call(__MODULE__, :reap_now, :infinity)
 

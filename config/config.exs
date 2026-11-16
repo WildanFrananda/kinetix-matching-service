@@ -37,7 +37,7 @@ config :kinetix_matching, KinetixMatching.Tracking.PingRetention,
   interval_ms: :timer.hours(24),
   retention_ms: :timer.hours(24 * 30)
 
-config :kinetix_matching, KinetixMatchingWeb.DriverChannel,
+config :kinetix_matching, KinetixMatchingWeb.EventSocket,
   ping_window_ms: 10_000,
   ping_limit: 100,
   ping_batch_window_ms: 60_000,

@@ -41,16 +41,19 @@ defmodule KinetixMatchingWeb.HttpMetricsTest do
     end
   end
 
-  defp websocket_upgrade(path) do
+  defp websocket_upgrade(path, headers) do
     server =
       start_supervised!({Bandit, plug: KinetixMatchingWeb.Endpoint, port: 0, startup_log: false})
 
     {:ok, {_address, port}} = ThousandIsland.listener_info(server)
     {:ok, socket} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, active: false, packet: :raw])
 
+    extra_headers = Enum.map_join(headers, "", fn {k, v} -> "#{k}: #{v}\r\n" end)
+
     request =
       "GET #{path} HTTP/1.1\r\n" <>
         "Host: localhost:#{port}\r\n" <>
+        extra_headers <>
         "Upgrade: websocket\r\n" <>
         "Connection: Upgrade\r\n" <>
         "Sec-WebSocket-Key: #{Base.encode64(:crypto.strong_rand_bytes(16))}\r\n" <>
@@ -89,13 +92,13 @@ defmodule KinetixMatchingWeb.HttpMetricsTest do
 
   describe "a socket transport" do
     test "an upgrade this endpoint rejects is counted", %{conn: conn} do
-      get(conn, "/driver/websocket")
+      get(conn, "/ws/v1/events")
 
-      assert {_measurements, %{route: "/driver/websocket"}} = counted()
+      assert {_measurements, %{route: "/ws/v1/events"}} = counted()
     end
 
-    test "a path under a socket that is not a transport cannot invent a label", %{conn: conn} do
-      get(conn, "/driver/8f3a1c2e-4b5d-6e7f-8a9b-0c1d2e3f4a5b")
+    test "a path under ws that is not a declared socket cannot invent a label", %{conn: conn} do
+      get(conn, "/ws/v1/8f3a1c2e-4b5d-6e7f-8a9b-0c1d2e3f4a5b")
 
       assert {_measurements, %{route: "unmatched"}} = counted()
     end
@@ -105,10 +108,10 @@ defmodule KinetixMatchingWeb.HttpMetricsTest do
       _driver = active_driver_fixture(principal)
       token = IdentityJwks.token(role: "courier", sub: principal)
 
-      assert websocket_upgrade("/driver/websocket?vsn=2.0.0&token=#{token}") ==
+      assert websocket_upgrade("/ws/v1/events", [{"Authorization", "Bearer #{token}"}]) ==
                "HTTP/1.1 101 Switching Protocols"
 
-      assert {%{duration: duration}, %{route: "/driver/websocket", status: "101"}} = counted()
+      assert {%{duration: duration}, %{route: "/ws/v1/events", status: "101"}} = counted()
       assert duration > 0
     end
   end

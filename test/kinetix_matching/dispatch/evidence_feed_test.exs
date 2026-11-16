@@ -221,8 +221,10 @@ defmodule KinetixMatching.Dispatch.EvidenceFeedTest do
     ScratchDatabase.use!(database)
 
     _ =
-      Ecto.Migrator.run(Repo, :down,
-        to: 20_261_016_160_000,
+      Ecto.Migrator.down(
+        Repo,
+        20_261_016_160_000,
+        KinetixMatching.Repo.Migrations.DeliveriesKeepAnEvidenceLog,
         dynamic_repo: database.repo,
         log: false
       )
@@ -242,7 +244,14 @@ defmodule KinetixMatching.Dispatch.EvidenceFeedTest do
                set: [status: :delivered]
              )
 
-    _ = Ecto.Migrator.run(Repo, :up, all: true, dynamic_repo: database.repo, log: false)
+    _ =
+      Ecto.Migrator.up(
+        Repo,
+        20_261_016_160_000,
+        KinetixMatching.Repo.Migrations.DeliveriesKeepAnEvidenceLog,
+        dynamic_repo: database.repo,
+        log: false
+      )
 
     assert_raise Postgrex.Error, ~r/with no evidence written before it/, fn ->
       Repo.insert!(%Order{

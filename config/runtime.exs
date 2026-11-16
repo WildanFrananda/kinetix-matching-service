@@ -55,6 +55,22 @@ if config_env() != :test do
   config :kinetix_matching,
          :time_zone,
          required.("KINETIX_TIME_ZONE", "the IANA zone the platform's day is counted in")
+
+  case System.get_env("REDIS_HOST") do
+    host when is_binary(host) and host != "" ->
+      config :kinetix_matching, KinetixMatching.Tracking.RedisPositionPublisher,
+        host: host,
+        port:
+          String.to_integer(
+            required.("REDIS_PORT", "Redis TCP port for courier live position Pub/Sub")
+          ),
+        username: System.get_env("REDIS_USER"),
+        password:
+          required.("REDIS_PASSWORD", "Redis ACL password for courier live position Pub/Sub")
+
+    _unset ->
+      :ok
+  end
 end
 
 if config_env() == :prod do

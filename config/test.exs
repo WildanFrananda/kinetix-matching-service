@@ -63,3 +63,6 @@ config :swoosh, :api_client, false
 config :kinetix_matching, KinetixMatching.Clients.Order, impl: KinetixMatching.FakeOrder
 config :kinetix_matching, :time_zone, "Asia/Jakarta"
 config :kinetix_matching, KinetixMatching.Storage, impl: KinetixMatching.FakeStorage
+
+config :kinetix_matching, KinetixMatching.Tracking.PositionPublisher,
+  impl: KinetixMatching.FakePositionPublisher

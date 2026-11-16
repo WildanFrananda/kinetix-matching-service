@@ -157,6 +157,7 @@ defmodule KinetixMatching.Dispatch do
   def create_order(attrs) do
     %Order{}
     |> Order.changeset(attrs)
+    |> Ecto.Changeset.put_change(:event_sequence, 1)
     |> Repo.insert()
     |> announce_order()
   end
@@ -367,6 +368,7 @@ defmodule KinetixMatching.Dispatch do
   defp return_to_pending(order) do
     order
     |> Ecto.Changeset.change(status: :pending, driver_id: nil, assigned_at: nil)
+    |> bump_sequence(order)
     |> Repo.update()
   end
 
@@ -444,6 +446,7 @@ defmodule KinetixMatching.Dispatch do
     order
     |> Order.delivery_changeset(pod_attrs, delivered_at)
     |> Ecto.Changeset.put_change(:status, :delivered)
+    |> bump_sequence(order)
     |> Repo.update()
   end
 
@@ -577,6 +580,7 @@ defmodule KinetixMatching.Dispatch do
           driver_id: driver_id,
           assigned_at: DateTime.utc_now()
         )
+        |> bump_sequence(locked)
         |> Repo.update()
       end
     end
@@ -644,9 +648,18 @@ defmodule KinetixMatching.Dispatch do
   defp apply_transition(false, _order, _target), do: {:error, :invalid_transition}
 
   defp apply_transition(true, order, target) do
-    with {:ok, updated} <- order |> Ecto.Changeset.change(status: target) |> Repo.update() do
+    with {:ok, updated} <-
+           order
+           |> Ecto.Changeset.change(status: target)
+           |> bump_sequence(order)
+           |> Repo.update() do
       {:ok, {updated, :changed}}
     end
+  end
+
+  @spec bump_sequence(Ecto.Changeset.t(), Order.t()) :: Ecto.Changeset.t()
+  defp bump_sequence(changeset, %Order{event_sequence: sequence}) do
+    Ecto.Changeset.put_change(changeset, :event_sequence, (sequence || 0) + 1)
   end
 
   @spec announce_transition({:ok, {Order.t(), outcome()}} | {:error, atom() | Ecto.Changeset.t()}) ::

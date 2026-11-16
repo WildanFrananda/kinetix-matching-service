@@ -10,8 +10,8 @@ defmodule KinetixMatchingWeb.RequestTraceTest do
 
   @earlier_id "kong-earlier-request-0001-aaaaaaaaaaaa"
   @this_id "kong-this-request-0002-bbbbbbbbbbbb"
-  @prefix "base64url.bearer.phx."
-  @sockets ["/driver/websocket", "/merchant/websocket"]
+  @socket "/ws/v1/events"
+  @roles [:courier, :seller]
 
   defp listen do
     server =
@@ -73,10 +73,7 @@ defmodule KinetixMatchingWeb.RequestTraceTest do
   defp with_token(headers, nil), do: headers
 
   defp with_token(headers, token) do
-    [
-      {"sec-websocket-protocol", "phoenix, #{@prefix}#{Base.url_encode64(token, padding: false)}"}
-      | headers
-    ]
+    [{"authorization", "Bearer #{token}"} | headers]
   end
 
   defp with_request_id(headers, nil), do: headers
@@ -84,16 +81,16 @@ defmodule KinetixMatchingWeb.RequestTraceTest do
 
   defp courier_token, do: IdentityJwks.token(role: "courier", sub: Ecto.UUID.generate())
 
-  defp token_for("/driver/websocket"), do: courier_token()
-  defp token_for("/merchant/websocket"), do: IdentityJwks.token(role: "seller")
+  defp token_for(:courier), do: courier_token()
+  defp token_for(:seller), do: IdentityJwks.token(role: "seller")
 
-  defp accepted_token_for("/driver/websocket") do
+  defp accepted_token_for(:courier) do
     principal = Ecto.UUID.generate()
     _driver = active_driver_fixture(principal)
     IdentityJwks.token(role: "courier", sub: principal)
   end
 
-  defp accepted_token_for("/merchant/websocket"), do: IdentityJwks.token(role: "seller")
+  defp accepted_token_for(:seller), do: IdentityJwks.token(role: "seller")
 
   defp served_earlier(port) do
     {conn, earlier} =
@@ -129,7 +126,7 @@ defmodule KinetixMatchingWeb.RequestTraceTest do
         response =
           exchange_raising(
             conn,
-            "/driver/websocket?vsn=2.0.0",
+            @socket,
             upgrade(courier_token(), @this_id)
           )
 
@@ -145,7 +142,7 @@ defmodule KinetixMatchingWeb.RequestTraceTest do
 
       while_the_database_cannot_serve(fn ->
         response =
-          exchange_raising(conn, "/driver/websocket?vsn=2.0.0", upgrade(courier_token(), nil))
+          exchange_raising(conn, @socket, upgrade(courier_token(), nil))
 
         assert response.status == 503
         assert [fresh] = header(response, "x-request-id")
@@ -163,7 +160,7 @@ defmodule KinetixMatchingWeb.RequestTraceTest do
             port
             |> connect()
             |> exchange_raising(
-              "/driver/websocket?vsn=2.0.0",
+              @socket,
               upgrade(courier_token(), request_id)
             )
 
@@ -177,9 +174,9 @@ defmodule KinetixMatchingWeb.RequestTraceTest do
     end
   end
 
-  for socket <- @sockets do
-    describe "a #{socket} handshake that fails unhandled" do
-      @socket socket
+  for role <- @roles do
+    describe "a #{role} handshake that fails unhandled" do
+      @role role
 
       test "names this request's id on a connection that served an earlier one" do
         port = listen()
@@ -188,7 +185,7 @@ defmodule KinetixMatchingWeb.RequestTraceTest do
           response =
             port
             |> served_earlier()
-            |> exchange_raising("#{@socket}?vsn=2.0.0", upgrade(token_for(@socket), @this_id))
+            |> exchange_raising(@socket, upgrade(token_for(@role), @this_id))
 
           assert response.status == 500
           assert trace_id(response) == @this_id
@@ -203,7 +200,7 @@ defmodule KinetixMatchingWeb.RequestTraceTest do
           response =
             port
             |> connect()
-            |> exchange_raising("#{@socket}?vsn=2.0.0", upgrade(token_for(@socket), nil))
+            |> exchange_raising(@socket, upgrade(token_for(@role), nil))
 
           assert response.status == 500
           assert [fresh] = header(response, "x-request-id")
@@ -213,31 +210,29 @@ defmodule KinetixMatchingWeb.RequestTraceTest do
       end
     end
 
-    describe "a #{socket} handshake accepted" do
-      @socket socket
+    describe "a #{role} handshake accepted" do
+      @role role
 
       test "carries this request's id in its header" do
         {_conn, response} =
           listen()
           |> served_earlier()
-          |> exchange("#{@socket}?vsn=2.0.0", upgrade(accepted_token_for(@socket), @this_id))
+          |> exchange(@socket, upgrade(accepted_token_for(@role), @this_id))
 
         assert response.status == 101
         assert header(response, "x-request-id") == [@this_id]
       end
     end
 
-    describe "a #{socket} handshake refused" do
-      @socket socket
-
+    describe "a #{role} handshake refused" do
       test "carries this request's id in its header" do
         {_conn, response} =
           listen()
           |> served_earlier()
-          |> exchange("#{@socket}?vsn=2.0.0", upgrade(nil, @this_id))
+          |> exchange(@socket, upgrade(nil, @this_id))
 
-        assert response.status == 403
-        assert response.body == ""
+        assert response.status == 401
+        assert trace_id(response) == @this_id
         assert header(response, "x-request-id") == [@this_id]
       end
     end

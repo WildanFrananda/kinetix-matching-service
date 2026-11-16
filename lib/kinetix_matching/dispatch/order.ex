@@ -29,6 +29,7 @@ defmodule KinetixMatching.Dispatch.Order do
           pod_photo_url: String.t() | nil,
           pod_signature: String.t() | nil,
           delivered_at: DateTime.t() | nil,
+          event_sequence: non_neg_integer(),
           delivery_reported_at: DateTime.t() | nil,
           delivery_report_attempts: non_neg_integer(),
           delivery_report_next_at: DateTime.t() | nil,
@@ -64,6 +65,7 @@ defmodule KinetixMatching.Dispatch.Order do
     field :pod_photo_url, :string
     field :pod_signature, :string
     field :delivered_at, :utc_datetime_usec
+    field :event_sequence, :integer, default: 0
     field :delivery_reported_at, :utc_datetime_usec
     field :delivery_report_attempts, :integer, default: 0
     field :delivery_report_next_at, :utc_datetime_usec

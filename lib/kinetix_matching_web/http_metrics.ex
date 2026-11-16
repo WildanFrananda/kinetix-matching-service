@@ -7,7 +7,6 @@ defmodule KinetixMatchingWeb.HttpMetrics do
   alias Plug.Conn
 
   @methods ~w(GET HEAD POST PUT PATCH DELETE OPTIONS TRACE CONNECT)
-  @transports ~w(websocket longpoll)
   @other_method "OTHER"
   @unmatched "unmatched"
   @unknown_status "unknown"
@@ -48,39 +47,16 @@ defmodule KinetixMatchingWeb.HttpMetrics do
   end
 
   @spec route(Conn.t(), module()) :: String.t()
-  defp route(conn, endpoint) do
+  defp route(conn, _endpoint) do
     KinetixMatchingWeb.Router
     |> Phoenix.Router.route_info(conn.method, conn.path_info, conn.host)
-    |> template(conn.path_info, endpoint)
+    |> template(conn.path_info)
   end
 
-  @spec template(map() | :error, [String.t()], module()) :: String.t()
-  defp template(%{route: route}, _path_info, _endpoint) when is_binary(route), do: braced(route)
-  defp template(_no_route, path_info, endpoint), do: socket_route(path_info, endpoint)
-
-  @spec socket_route([String.t()], module()) :: String.t()
-  defp socket_route(path_info, endpoint) do
-    transport = List.last(path_info)
-    prefix = "/" <> Enum.join(Enum.drop(path_info, -1), "/")
-
-    transport
-    |> socket_transport?(prefix, endpoint)
-    |> socket_template(prefix, transport)
-  end
-
-  @spec socket_transport?(String.t() | nil, String.t(), module()) :: boolean()
-  defp socket_transport?(transport, prefix, endpoint) do
-    transport in @transports and declared_socket?(prefix, endpoint)
-  end
-
-  @spec socket_template(boolean(), String.t(), String.t() | nil) :: String.t()
-  defp socket_template(true, prefix, transport), do: "#{prefix}/#{transport}"
-  defp socket_template(false, _prefix, _transport), do: @unmatched
-
-  @spec declared_socket?(String.t(), module()) :: boolean()
-  defp declared_socket?(prefix, endpoint) do
-    Enum.any?(endpoint.__sockets__(), &match?({^prefix, _socket, _opts}, &1))
-  end
+  @spec template(map() | :error, [String.t()]) :: String.t()
+  defp template(%{route: route}, _path_info) when is_binary(route), do: braced(route)
+  defp template(_no_route, ["ws", "v1", "events"]), do: "/ws/v1/events"
+  defp template(_no_route, _path_info), do: @unmatched
 
   @spec braced(String.t()) :: String.t()
   defp braced(route), do: route |> String.split("/") |> Enum.map_join("/", &segment/1)

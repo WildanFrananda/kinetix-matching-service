@@ -53,6 +53,7 @@ defmodule KinetixMatching.Application do
       KinetixMatching.Repo,
       {DNSCluster, query: Application.get_env(:kinetix_matching, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: KinetixMatching.PubSub},
+      KinetixMatching.Tracking.RedisPositionPublisher,
       KinetixMatching.Tracking.Supervisor,
       {KinetixMatching.RateLimit, clean_period: :timer.minutes(10)},
       KinetixMatching.Security.TokenVerifier
