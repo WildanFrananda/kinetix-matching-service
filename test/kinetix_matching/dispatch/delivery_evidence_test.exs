@@ -5,8 +5,8 @@ defmodule KinetixMatching.Dispatch.DeliveryEvidenceTest do
   import KinetixMatching.TrackingFixtures
 
   alias KinetixMatching.Dispatch
+  alias KinetixMatching.Dispatch.Delivery, as: Order
   alias KinetixMatching.Dispatch.DeliveryEvidence
-  alias KinetixMatching.Dispatch.Order
   alias KinetixMatching.FakeOrder
   alias KinetixMatching.Tracking
   alias KinetixMatching.Tracking.StateCache
@@ -14,7 +14,7 @@ defmodule KinetixMatching.Dispatch.DeliveryEvidenceTest do
   @pickup {-6.1754, 106.8272}
 
   setup do
-    Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
+    Enum.each(StateCache.all(), &StateCache.delete(&1.courier_principal_id))
     :ok = FakeOrder.start()
     :ok = FakeOrder.reset()
     :ok
@@ -74,7 +74,7 @@ defmodule KinetixMatching.Dispatch.DeliveryEvidenceTest do
         })
 
       assert [evidence] = Repo.all(DeliveryEvidence)
-      assert evidence.order_id == order.id
+      assert evidence.delivery_id == order.id
       assert evidence.order_number == order.order_number
       assert evidence.driver_principal_id == principal
       assert evidence.photo_sha256 == :crypto.hash(:sha256, photo)
@@ -125,7 +125,7 @@ defmodule KinetixMatching.Dispatch.DeliveryEvidenceTest do
             dropoff_latitude: -6.9,
             dropoff_longitude: 107.6,
             status: :delivered,
-            driver_id: driver.id
+            courier_principal_id: driver.id
           })
         end)
       end
@@ -155,7 +155,7 @@ defmodule KinetixMatching.Dispatch.DeliveryEvidenceTest do
                  DeliveryEvidence.changeset(order, principal, <<2::256>>, nil, DateTime.utc_now())
                )
 
-      assert {"has already been taken", _} = changeset.errors[:order_id]
+      assert {"has already been taken", _} = changeset.errors[:delivery_id]
     end
 
     test "refuses a digest that is not 32 bytes, and evidence that names no courier" do

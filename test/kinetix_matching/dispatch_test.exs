@@ -5,8 +5,8 @@ defmodule KinetixMatching.DispatchTest do
   import KinetixMatching.TrackingFixtures
 
   alias KinetixMatching.Dispatch
+  alias KinetixMatching.Dispatch.Delivery, as: Order
   alias KinetixMatching.Dispatch.Events
-  alias KinetixMatching.Dispatch.Order
   alias KinetixMatching.Dispatch.Unassignment
   alias KinetixMatching.FailingAssignment
   alias KinetixMatching.FakeStorage
@@ -18,7 +18,7 @@ defmodule KinetixMatching.DispatchTest do
   @pickup {-6.1754, 106.8272}
 
   setup do
-    Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
+    Enum.each(StateCache.all(), &StateCache.delete(&1.courier_principal_id))
     :ok
   end
 
@@ -75,7 +75,7 @@ defmodule KinetixMatching.DispatchTest do
 
       assert {:ok, assigned} = Dispatch.assign_order(order.id)
       assert assigned.status == :assigned
-      assert assigned.driver_id == near.id
+      assert assigned.courier_principal_id == near.id
       assert assigned.assigned_at != nil
 
       assert {:ok, %{status: :busy}} = Tracking.fetch_state(near.id)
@@ -86,7 +86,7 @@ defmodule KinetixMatching.DispatchTest do
       big = online_driver(2.0, 500)
 
       assert {:ok, assigned} = Dispatch.assign_order(order!(%{weight_kg: 200}).id)
-      assert assigned.driver_id == big.id
+      assert assigned.courier_principal_id == big.id
     end
 
     test "fails when no driver is in range" do
@@ -121,7 +121,7 @@ defmodule KinetixMatching.DispatchTest do
       order = order!()
       assert {:ok, _assigned} = Dispatch.assign_order(order.id)
 
-      assert_receive {:order_assigned, %Order{id: id, driver_id: assigned_to}}
+      assert_receive {:order_assigned, %Order{id: id, courier_principal_id: assigned_to}}
       assert id == order.id
       assert assigned_to == driver.id
     end
@@ -145,7 +145,7 @@ defmodule KinetixMatching.DispatchTest do
 
       assert Enum.all?(results, &match?({:ok, _}, &1))
 
-      assigned_ids = Enum.map(results, fn {:ok, order} -> order.driver_id end)
+      assigned_ids = Enum.map(results, fn {:ok, order} -> order.courier_principal_id end)
 
       assert Enum.sort(assigned_ids) == Enum.sort([d1.id, d2.id])
     end
@@ -171,7 +171,7 @@ defmodule KinetixMatching.DispatchTest do
       assert length(losers) == 19
 
       assert [{:ok, won}] = winners
-      assert won.driver_id == driver.id
+      assert won.courier_principal_id == driver.id
       assert {:ok, %{status: :busy}} = Tracking.fetch_state(driver.id)
     end
   end
@@ -330,7 +330,7 @@ defmodule KinetixMatching.DispatchTest do
 
       {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
 
-      assert {:error, :forbidden} = Dispatch.pod_upload(order.id, driver.id + 1_000, hex)
+      assert {:error, :forbidden} = Dispatch.pod_upload(order.id, "#{driver.id}-other", hex)
     end
 
     test "refuses a photo reference too long to be one" do
@@ -355,7 +355,7 @@ defmodule KinetixMatching.DispatchTest do
       assert {:error, :invalid_transition} = Dispatch.mark_delivered(order.id, driver.id, %{})
     end
 
-    test "a delivery with no proof at all is still a delivery" do
+    test "a delivery with proof succeeds" do
       driver = online_driver(0.5, 100)
       order = assigned_order!()
       {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
@@ -369,7 +369,7 @@ defmodule KinetixMatching.DispatchTest do
       intruder = online_driver(2.0, 100)
 
       {:ok, order} = Dispatch.assign_order(order!().id)
-      assert order.driver_id == owner.id, "expected the nearer driver to be assigned"
+      assert order.courier_principal_id == owner.id, "expected the nearer driver to be assigned"
 
       assert {:error, :forbidden} = Dispatch.mark_picked_up(order.id, intruder.id)
     end
@@ -517,7 +517,7 @@ defmodule KinetixMatching.DispatchTest do
       {:ok, order} = Dispatch.create_order(order_attrs())
 
       assert {:ok, assigned} = Dispatch.assign_order_to_driver(order.id, driver.id)
-      assert assigned.driver_id == driver.id
+      assert assigned.courier_principal_id == driver.id
       assert {:ok, %{status: :busy}} = Tracking.fetch_state(driver.id)
     end
 
@@ -535,8 +535,11 @@ defmodule KinetixMatching.DispatchTest do
     test "says a driver who does not exist is not found, apart from a job that is not" do
       {:ok, order} = Dispatch.create_order(order_attrs())
 
-      assert {:error, :driver_not_found} = Dispatch.assign_order_to_driver(order.id, 999_999_999)
-      assert {:error, :not_found} = Dispatch.assign_order_to_driver(999_999_999, 999_999_999)
+      assert {:error, :driver_not_found} =
+               Dispatch.assign_order_to_driver(order.id, "principal-unknown")
+
+      assert {:error, :not_found} =
+               Dispatch.assign_order_to_driver(999_999_999, "principal-unknown")
     end
 
     test "says a driver who exists but is not connected is not tracked" do
@@ -555,7 +558,15 @@ defmodule KinetixMatching.DispatchTest do
 
       assert {:error, :no_driver_available} = Dispatch.assign_order(order.id)
       assert {:ok, assigned} = Dispatch.assign_order_to_driver(order.id, driver.id)
-      assert assigned.driver_id == driver.id
+      assert assigned.courier_principal_id == driver.id
+    end
+
+    test "refuses to assign a tracked driver whose standing was revoked" do
+      driver = online_driver(0.5, 100)
+      _ = registered_driver_fixture(driver.id, %{vehicle_plate: driver.vehicle_plate})
+      {:ok, order} = Dispatch.create_order(order_attrs())
+
+      assert {:error, :driver_not_found} = Dispatch.assign_order_to_driver(order.id, driver.id)
     end
   end
 
@@ -569,7 +580,9 @@ defmodule KinetixMatching.DispatchTest do
 
       assert {:ok, %{status: :online, active_orders_count: 0}} = Tracking.fetch_state(driver.id)
       assert {:ok, %{status: :online}} = Tracking.set_status(driver.id, :online)
-      assert {:ok, %{status: :pending, driver_id: nil}} = Dispatch.fetch_order(order.id)
+
+      assert {:ok, %{status: :pending, courier_principal_id: nil}} =
+               Dispatch.fetch_order(order.id)
     end
 
     test "an administrator's assign frees the courier it claimed" do
@@ -581,7 +594,9 @@ defmodule KinetixMatching.DispatchTest do
 
       assert {:ok, %{status: :online, active_orders_count: 0}} = Tracking.fetch_state(driver.id)
       assert {:ok, %{status: :online}} = Tracking.set_status(driver.id, :online)
-      assert {:ok, %{status: :pending, driver_id: nil}} = Dispatch.fetch_order(order.id)
+
+      assert {:ok, %{status: :pending, courier_principal_id: nil}} =
+               Dispatch.fetch_order(order.id)
     end
 
     test "a courier with a job keeps it when a second assignment fails" do
@@ -595,7 +610,10 @@ defmodule KinetixMatching.DispatchTest do
       assert_raise Postgrex.Error, fn -> Dispatch.assign_order(second.id) end
 
       assert {:ok, %{status: :online, active_orders_count: 1}} = Tracking.fetch_state(driver.id)
-      assert {:ok, %{status: :assigned, driver_id: with_driver}} = Dispatch.fetch_order(first.id)
+
+      assert {:ok, %{status: :assigned, courier_principal_id: with_driver}} =
+               Dispatch.fetch_order(first.id)
+
       assert with_driver == driver.id
     end
   end
@@ -648,8 +666,10 @@ defmodule KinetixMatching.DispatchTest do
   describe "count_delivered_today/1 on the platform's clock" do
     defp delivered_at!(at) do
       order = assigned_order!()
-      {:ok, _} = Dispatch.mark_picked_up(order.id, order.driver_id)
-      {:ok, _} = Dispatch.mark_delivered(order.id, order.driver_id, proof_for(order.id))
+      {:ok, _} = Dispatch.mark_picked_up(order.id, order.courier_principal_id)
+
+      {:ok, _} =
+        Dispatch.mark_delivered(order.id, order.courier_principal_id, proof_for(order.id))
 
       Order
       |> where([o], o.id == ^order.id)
@@ -724,7 +744,7 @@ defmodule KinetixMatching.DispatchTest do
 
       first = assigned_order!()
       second = assigned_order!()
-      assert second.driver_id == driver.id
+      assert second.courier_principal_id == driver.id
 
       {:ok, _} = Dispatch.mark_picked_up(first.id, driver.id)
       proof = proof_for(first.id)
@@ -742,8 +762,8 @@ defmodule KinetixMatching.DispatchTest do
       {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
       {:ok, _} = Dispatch.mark_delivered(order.id, driver.id, proof_for(order.id))
 
-      assert {:error, :forbidden} = Dispatch.mark_picked_up(order.id, driver.id + 1_000)
-      assert {:error, :forbidden} = Dispatch.mark_delivered(order.id, driver.id + 1_000, %{})
+      assert {:error, :forbidden} = Dispatch.mark_picked_up(order.id, "#{driver.id}-other")
+      assert {:error, :forbidden} = Dispatch.mark_delivered(order.id, "#{driver.id}-other", %{})
     end
   end
 
@@ -755,14 +775,14 @@ defmodule KinetixMatching.DispatchTest do
 
       assert {:ok, pending} = Dispatch.unassign_order(order.id, "admin-principal")
       assert pending.status == :pending
-      assert pending.driver_id == nil
+      assert pending.courier_principal_id == nil
       assert pending.assigned_at == nil
 
       assert_receive {:order_unassigned, %Order{id: id}}
       assert id == order.id
       assert {:ok, %{status: :online, active_orders_count: 0}} = Tracking.fetch_state(driver.id)
 
-      assert [%Unassignment{driver_id: taken_from, unassigned_by: "admin-principal"}] =
+      assert [%Unassignment{courier_principal_id: taken_from, unassigned_by: "admin-principal"}] =
                Repo.all(Unassignment)
 
       assert taken_from == driver.id
@@ -771,14 +791,14 @@ defmodule KinetixMatching.DispatchTest do
     test "offers the job again, but not to the courier it was taken from" do
       first = online_driver(0.5, 100)
       order = assigned_order!()
-      assert order.driver_id == first.id
+      assert order.courier_principal_id == first.id
 
       {:ok, _} = Dispatch.unassign_order(order.id, "admin-principal")
       assert {:error, :no_driver_available} = Dispatch.assign_order(order.id)
 
       second = online_driver(1.0, 100)
       assert {:ok, reassigned} = Dispatch.assign_order(order.id)
-      assert reassigned.driver_id == second.id
+      assert reassigned.courier_principal_id == second.id
     end
 
     test "an administrator may still hand it back to that courier by name" do
@@ -786,7 +806,9 @@ defmodule KinetixMatching.DispatchTest do
       order = assigned_order!()
       {:ok, _} = Dispatch.unassign_order(order.id, "admin-principal")
 
-      assert {:ok, %{driver_id: id}} = Dispatch.assign_order_to_driver(order.id, driver.id)
+      assert {:ok, %{courier_principal_id: id}} =
+               Dispatch.assign_order_to_driver(order.id, driver.id)
+
       assert id == driver.id
     end
 
@@ -808,7 +830,10 @@ defmodule KinetixMatching.DispatchTest do
       {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
 
       assert {:error, :invalid_transition} = Dispatch.unassign_order(order.id, "admin-principal")
-      assert {:ok, %{status: :picked_up, driver_id: id}} = Dispatch.fetch_order(order.id)
+
+      assert {:ok, %{status: :picked_up, courier_principal_id: id}} =
+               Dispatch.fetch_order(order.id)
+
       assert id == driver.id
     end
 
@@ -864,7 +889,7 @@ defmodule KinetixMatching.DispatchTest do
         )
 
       {:ok, _} = Tracking.fetch_state(driver.id)
-      assert {:ok, %{driver_id: id}} = Dispatch.assign_order(order.id)
+      assert {:ok, %{courier_principal_id: id}} = Dispatch.assign_order(order.id)
       assert id == driver.id
     end
 
@@ -873,7 +898,7 @@ defmodule KinetixMatching.DispatchTest do
       {:ok, state} = Tracking.fetch_state(driver.id)
 
       Repo.insert!(%LocationPing{
-        driver_id: driver.id,
+        courier_principal_id: driver.id,
         latitude: elem(state.coordinates, 0),
         longitude: elem(state.coordinates, 1),
         recorded_at: state.recorded_at,
@@ -922,7 +947,6 @@ defmodule KinetixMatching.DispatchTest do
 
       assert {:ok, %{status: :online, active_orders_count: 2}} = Tracking.fetch_state(driver.id)
 
-      # Now 4th order can be assigned
       assert {:ok, _assigned4} = Dispatch.assign_order(order4.id)
       assert {:ok, %{status: :busy, active_orders_count: 3}} = Tracking.fetch_state(driver.id)
     end

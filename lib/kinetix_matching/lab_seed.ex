@@ -6,12 +6,10 @@ defmodule KinetixMatching.LabSeed do
   It writes only to a database whose name ends in `_dev`, the lab's.
   """
 
-  import Ecto.Query
-
+  alias KinetixMatching.Clients.Identity
+  alias KinetixMatching.Dispatch.Delivery, as: Order
   alias KinetixMatching.Dispatch.DeliveryEvidence
-  alias KinetixMatching.Dispatch.Order
   alias KinetixMatching.Repo
-  alias KinetixMatching.Tracking.Driver
 
   @type refusal ::
           :not_a_lab_database
@@ -53,48 +51,43 @@ defmodule KinetixMatching.LabSeed do
       do: {:error, :invalid_span}
 
   def courier_record(principal_id, deliveries, span_days, now) do
-    with {:ok, driver} <- active_courier(principal_id) do
-      fn -> write_deliveries(driver, deliveries, span_days, now) end
+    with {:ok, standing} <- active_courier(principal_id) do
+      fn -> write_deliveries(standing.courier_principal_id, deliveries, span_days, now) end
       |> Repo.transact()
     end
   end
 
   @spec active_courier(String.t()) ::
-          {:ok, Driver.t()} | {:error, :unknown_courier | :courier_not_active}
+          {:ok, Identity.standing()} | {:error, :unknown_courier | :courier_not_active}
   defp active_courier(principal_id) do
-    Driver
-    |> where([d], d.principal_id == ^principal_id)
-    |> Repo.one()
-    |> courier_standing()
+    case Identity.courier_standing(principal_id) do
+      {:ok, %{may_drive: true} = standing} -> {:ok, standing}
+      {:ok, %{may_drive: false}} -> {:error, :courier_not_active}
+      {:error, _reason} -> {:error, :unknown_courier}
+    end
   end
 
-  @spec courier_standing(Driver.t() | nil) ::
-          {:ok, Driver.t()} | {:error, :unknown_courier | :courier_not_active}
-  defp courier_standing(nil), do: {:error, :unknown_courier}
-  defp courier_standing(%Driver{active: true} = driver), do: {:ok, driver}
-  defp courier_standing(%Driver{}), do: {:error, :courier_not_active}
-
-  @spec write_deliveries(Driver.t(), pos_integer(), pos_integer(), DateTime.t()) ::
+  @spec write_deliveries(String.t(), pos_integer(), pos_integer(), DateTime.t()) ::
           {:ok, non_neg_integer()}
-  defp write_deliveries(driver, deliveries, span_days, now) do
+  defp write_deliveries(courier_principal_id, deliveries, span_days, now) do
     step = div(span_days * @seconds_per_day, deliveries)
     first = DateTime.add(now, -span_days * @seconds_per_day, :second)
 
     Enum.each(0..(deliveries - 1), fn index ->
-      write_delivery(driver, index, DateTime.add(first, index * step, :second))
+      write_delivery(courier_principal_id, index, DateTime.add(first, index * step, :second))
     end)
 
     {:ok, deliveries}
   end
 
-  @spec write_delivery(Driver.t(), non_neg_integer(), DateTime.t()) :: Order.t()
-  defp write_delivery(driver, index, delivered_at) do
+  @spec write_delivery(String.t(), non_neg_integer(), DateTime.t()) :: Order.t()
+  defp write_delivery(courier_principal_id, index, delivered_at) do
     assigned_at = DateTime.add(delivered_at, -@minutes_on_the_road * 60, :second)
-    job = Repo.insert!(job_of(driver, index, assigned_at))
+    job = Repo.insert!(job_of(courier_principal_id, index, assigned_at))
 
     job
     |> DeliveryEvidence.changeset(
-      driver.principal_id,
+      courier_principal_id,
       seed_digest("photo", job.id),
       seed_digest("signature", job.id),
       delivered_at
@@ -110,8 +103,8 @@ defmodule KinetixMatching.LabSeed do
     |> Repo.update!()
   end
 
-  @spec job_of(Driver.t(), non_neg_integer(), DateTime.t()) :: Order.t()
-  defp job_of(driver, index, assigned_at) do
+  @spec job_of(String.t(), non_neg_integer(), DateTime.t()) :: Order.t()
+  defp job_of(courier_principal_id, index, assigned_at) do
     {pickup_latitude, pickup_longitude} = @pickup
     {dropoff_latitude, dropoff_longitude} = @dropoff
     offset = rem(index, 20) * 0.001
@@ -123,7 +116,7 @@ defmodule KinetixMatching.LabSeed do
       dropoff_longitude: dropoff_longitude - offset,
       weight_kg: 1,
       status: :picked_up,
-      driver_id: driver.id,
+      courier_principal_id: courier_principal_id,
       awb_number: Order.issue_awb(),
       assigned_at: assigned_at,
       inserted_at: assigned_at,

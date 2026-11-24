@@ -3,8 +3,8 @@ defmodule KinetixMatching.LabSeedTest do
 
   import KinetixMatching.TrackingFixtures
 
+  alias KinetixMatching.Dispatch.Delivery, as: Order
   alias KinetixMatching.Dispatch.DeliveryEvidence
-  alias KinetixMatching.Dispatch.Order
   alias KinetixMatching.LabSeed
 
   @now ~U[2026-11-03 03:00:00.000000Z]
@@ -39,11 +39,11 @@ defmodule KinetixMatching.LabSeedTest do
 
     jobs =
       Order
-      |> where([o], o.driver_id == ^driver.id)
+      |> where([o], o.courier_principal_id == ^driver.id)
       |> order_by([o], asc: o.id)
       |> Repo.all()
 
-    assert Enum.map(jobs, & &1.id) == Enum.map(evidence, & &1.order_id)
+    assert Enum.map(jobs, & &1.id) == Enum.map(evidence, & &1.delivery_id)
     assert Enum.all?(jobs, &(&1.status == :delivered))
     assert Enum.all?(jobs, &(&1.order_number == nil and &1.delivery_report_next_at == nil))
     assert Enum.map(jobs, & &1.delivered_at) == Enum.map(evidence, & &1.delivered_at)
@@ -61,10 +61,10 @@ defmodule KinetixMatching.LabSeedTest do
     [evidence] = evidence_of(courier)
 
     assert evidence.photo_sha256 ==
-             :crypto.hash(:sha256, "kinetix-lab-seed:photo:#{evidence.order_id}")
+             :crypto.hash(:sha256, "kinetix-lab-seed:photo:#{evidence.delivery_id}")
 
     assert evidence.signature_sha256 ==
-             :crypto.hash(:sha256, "kinetix-lab-seed:signature:#{evidence.order_id}")
+             :crypto.hash(:sha256, "kinetix-lab-seed:signature:#{evidence.delivery_id}")
   end
 
   test "refuses a principal no courier has" do

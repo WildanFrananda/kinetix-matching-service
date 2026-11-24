@@ -1,14 +1,14 @@
 defmodule KinetixMatching.Dispatch do
   @moduledoc """
-  The dispatch context — order intake and driver assignment (PRD 5.5).
+  The dispatch context — order intake and courier assignment (PRD 5.5).
   """
 
   import Ecto.Query
 
+  alias KinetixMatching.Dispatch.Delivery, as: Order
   alias KinetixMatching.Dispatch.DeliveryEvidence
   alias KinetixMatching.Dispatch.DeliveryReporter
   alias KinetixMatching.Dispatch.Events
-  alias KinetixMatching.Dispatch.Order
   alias KinetixMatching.Dispatch.Proof
   alias KinetixMatching.Dispatch.Unassignment
   alias KinetixMatching.PlatformTimeZone
@@ -26,6 +26,7 @@ defmodule KinetixMatching.Dispatch do
           | :proof_unverifiable
           | :signature_required
           | :unlinked
+          | :identity_unavailable
 
   @type pod_upload :: %{
           upload_url: String.t(),
@@ -42,7 +43,11 @@ defmodule KinetixMatching.Dispatch do
   @type assign_error :: :no_driver_available | :not_found | :already_assigned
 
   @type manual_assign_error ::
-          assign_error() | :driver_not_found | :driver_not_tracked | :driver_unavailable
+          assign_error()
+          | :driver_not_found
+          | :driver_not_tracked
+          | :driver_unavailable
+          | :identity_unavailable
 
   @type cancel_error :: :not_found | :invalid_transition | :bound_to_order
 
@@ -223,19 +228,25 @@ defmodule KinetixMatching.Dispatch do
   @spec subscribe_orders() :: Events.subscribe_result()
   def subscribe_orders, do: Events.subscribe_orders()
 
-  @spec active_order_for_driver(Types.id()) :: Order.t() | nil
-  def active_order_for_driver(driver_id) do
+  @spec active_order_for_driver(Types.principal_id()) :: Order.t() | nil
+  def active_order_for_driver(courier_principal_id) do
     Order
-    |> where([o], o.driver_id == ^driver_id and o.status in [:assigned, :picked_up])
+    |> where(
+      [o],
+      o.courier_principal_id == ^courier_principal_id and o.status in [:assigned, :picked_up]
+    )
     |> order_by([o], desc: o.assigned_at)
     |> limit(1)
     |> Repo.one()
   end
 
-  @spec active_orders_for_driver(Types.id()) :: [Order.t()]
-  def active_orders_for_driver(driver_id) do
+  @spec active_orders_for_driver(Types.principal_id()) :: [Order.t()]
+  def active_orders_for_driver(courier_principal_id) do
     Order
-    |> where([o], o.driver_id == ^driver_id and o.status in [:assigned, :picked_up])
+    |> where(
+      [o],
+      o.courier_principal_id == ^courier_principal_id and o.status in [:assigned, :picked_up]
+    )
     |> order_by([o], desc: o.assigned_at)
     |> Repo.all()
   end
@@ -254,14 +265,14 @@ defmodule KinetixMatching.Dispatch do
     result
   end
 
-  @spec assign_order_to_driver(Types.id(), Types.id()) ::
+  @spec assign_order_to_driver(Types.id(), Types.principal_id()) ::
           {:ok, Order.t()} | {:error, manual_assign_error() | Order.changeset()}
-  def assign_order_to_driver(order_id, driver_id) do
+  def assign_order_to_driver(order_id, courier_principal_id) do
     result =
       with {:ok, order} <- fetch_order(order_id),
            :ok <- ensure_pending(order),
-           :ok <- ensure_known_driver(driver_id),
-           {:ok, driver_state} <- claim_chosen(driver_id) do
+           :ok <- ensure_known_driver(courier_principal_id),
+           {:ok, driver_state} <- claim_chosen(courier_principal_id) do
         persist_assignment(order, driver_state)
       end
 
@@ -273,23 +284,24 @@ defmodule KinetixMatching.Dispatch do
   def unassign_order(order_id, unassigned_by) do
     fn ->
       with {:ok, order} <- lock_order(order_id),
-           {:ok, driver_id} <- ensure_assigned(order),
-           {:ok, _record} <- Repo.insert(Unassignment.changeset(order, driver_id, unassigned_by)),
+           {:ok, courier_principal_id} <- ensure_assigned(order),
+           {:ok, _record} <-
+             Repo.insert(Unassignment.changeset(order, courier_principal_id, unassigned_by)),
            {:ok, pending} <- return_to_pending(order) do
-        {:ok, {pending, driver_id}}
+        {:ok, {pending, courier_principal_id}}
       end
     end
     |> Repo.transact()
     |> announce_unassignment()
   end
 
-  @spec pod_upload(Types.id(), Types.id(), term()) ::
+  @spec pod_upload(Types.id(), Types.principal_id(), term()) ::
           {:ok, pod_upload()}
           | {:error, :not_found | :forbidden | :invalid_transition | :invalid_photo_hash}
-  def pod_upload(order_id, driver_id, photo_sha256) do
+  def pod_upload(order_id, courier_principal_id, photo_sha256) do
     with {:ok, digest} <- Proof.parse_sha256(photo_sha256),
          {:ok, order} <- fetch_order(order_id),
-         :ok <- ensure_owner(order, driver_id),
+         :ok <- ensure_owner(order, courier_principal_id),
          :ok <- ensure_picked_up(order) do
       key = Proof.photo_key(order.id, digest)
       upload = Storage.upload(key, digest)
@@ -314,11 +326,12 @@ defmodule KinetixMatching.Dispatch do
     end
   end
 
-  @spec mark_picked_up(Types.id(), Types.id()) :: {:ok, Order.t()} | {:error, transition_error()}
-  def mark_picked_up(order_id, driver_id) do
+  @spec mark_picked_up(Types.id(), Types.principal_id()) ::
+          {:ok, Order.t()} | {:error, transition_error()}
+  def mark_picked_up(order_id, courier_principal_id) do
     fn ->
       with {:ok, order} <- lock_order(order_id),
-           :ok <- ensure_owner(order, driver_id) do
+           :ok <- ensure_owner(order, courier_principal_id) do
         advance(order, :picked_up)
       end
     end
@@ -326,11 +339,11 @@ defmodule KinetixMatching.Dispatch do
     |> announce_transition()
   end
 
-  @spec mark_delivered(Types.id(), Types.id(), map()) ::
+  @spec mark_delivered(Types.id(), Types.principal_id(), map()) ::
           {:ok, Order.t()} | {:error, transition_error()}
-  def mark_delivered(order_id, driver_id, pod_attrs \\ %{}) do
+  def mark_delivered(order_id, courier_principal_id, pod_attrs \\ %{}) do
     with {:ok, order} <- fetch_order(order_id),
-         :ok <- ensure_owner(order, driver_id) do
+         :ok <- ensure_owner(order, courier_principal_id) do
       deliver(order, pod_attrs)
     end
   end
@@ -356,10 +369,10 @@ defmodule KinetixMatching.Dispatch do
   defp ensure_unbound(%Order{}), do: {:error, :bound_to_order}
 
   @spec ensure_assigned(Order.t()) ::
-          {:ok, Types.id()} | {:error, :not_assigned | :invalid_transition}
-  defp ensure_assigned(%Order{status: :assigned, driver_id: driver_id})
-       when is_integer(driver_id),
-       do: {:ok, driver_id}
+          {:ok, Types.principal_id()} | {:error, :not_assigned | :invalid_transition}
+  defp ensure_assigned(%Order{status: :assigned, courier_principal_id: courier_principal_id})
+       when is_binary(courier_principal_id) and courier_principal_id != "",
+       do: {:ok, courier_principal_id}
 
   defp ensure_assigned(%Order{status: :pending}), do: {:error, :not_assigned}
   defp ensure_assigned(%Order{}), do: {:error, :invalid_transition}
@@ -367,21 +380,24 @@ defmodule KinetixMatching.Dispatch do
   @spec return_to_pending(Order.t()) :: {:ok, Order.t()} | {:error, Order.changeset()}
   defp return_to_pending(order) do
     order
-    |> Ecto.Changeset.change(status: :pending, driver_id: nil, assigned_at: nil)
+    |> Ecto.Changeset.change(status: :pending, courier_principal_id: nil, assigned_at: nil)
     |> bump_sequence(order)
     |> Repo.update()
   end
 
-  @spec announce_unassignment({:ok, {Order.t(), Types.id()}} | {:error, unassign_error()}) ::
+  @spec announce_unassignment(
+          {:ok, {Order.t(), Types.principal_id()}}
+          | {:error, unassign_error()}
+        ) ::
           {:ok, Order.t()} | {:error, unassign_error()}
-  defp announce_unassignment({:ok, {order, driver_id}}) do
-    _ = DriverState.release(driver_id)
-    :ok = Events.broadcast(driver_id, {:order_unassigned, order})
+  defp announce_unassignment({:ok, {order, courier_principal_id}}) do
+    _ = DriverState.release(courier_principal_id)
+    :ok = Events.broadcast(courier_principal_id, {:order_unassigned, order})
     :ok = Events.broadcast_order(order)
 
     :telemetry.execute([:kinetix_matching, :dispatch, :order_unassigned], %{count: 1}, %{
       order_id: order.id,
-      driver_id: driver_id
+      courier_principal_id: courier_principal_id
     })
 
     {:ok, order}
@@ -410,7 +426,7 @@ defmodule KinetixMatching.Dispatch do
           {:ok, {Order.t(), outcome()}} | {:error, transition_error() | Ecto.Changeset.t()}
   defp record_delivery(order, pod_attrs, proof) do
     with {:ok, locked} <- lock_order(order.id),
-         :ok <- ensure_owner(locked, order.driver_id) do
+         :ok <- ensure_owner(locked, order.courier_principal_id) do
       write_delivery(locked, pod_attrs, proof)
     end
   end
@@ -488,33 +504,40 @@ defmodule KinetixMatching.Dispatch do
   defp stored_as_jpeg({:ok, :absent}, _digest), do: {:error, :invalid_proof}
   defp stored_as_jpeg({:error, :unavailable}, _digest), do: {:error, :proof_unverifiable}
 
-  @spec delivering_principal(Order.t()) :: {:ok, String.t()} | {:error, :unlinked}
-  defp delivering_principal(%Order{driver_id: driver_id}) do
-    case Tracking.fetch_driver(driver_id) do
-      {:ok, %{principal_id: principal}} when is_binary(principal) and principal != "" ->
-        {:ok, principal}
-
-      _unnamed ->
-        {:error, :unlinked}
+  @spec delivering_principal(Order.t()) ::
+          {:ok, String.t()} | {:error, :unlinked | :identity_unavailable}
+  defp delivering_principal(%Order{courier_principal_id: courier_principal_id})
+       when is_binary(courier_principal_id) and courier_principal_id != "" do
+    case Tracking.courier_standing(courier_principal_id) do
+      {:ok, %{courier_principal_id: principal}} -> {:ok, principal}
+      {:error, :identity_unavailable} -> {:error, :identity_unavailable}
+      {:error, _reason} -> {:error, :unlinked}
     end
   end
+
+  defp delivering_principal(%Order{}), do: {:error, :unlinked}
 
   @spec ensure_pending(Order.t()) :: :ok | {:error, :already_assigned}
   defp ensure_pending(%Order{status: :pending}), do: :ok
   defp ensure_pending(%Order{}), do: {:error, :already_assigned}
 
-  @spec ensure_known_driver(Types.id()) :: :ok | {:error, :driver_not_found}
-  defp ensure_known_driver(driver_id) do
-    case Tracking.fetch_driver(driver_id) do
-      {:ok, _driver} -> :ok
-      {:error, :not_found} -> {:error, :driver_not_found}
+  @spec ensure_known_driver(Types.principal_id()) ::
+          :ok | {:error, :driver_not_found | :identity_unavailable}
+  defp ensure_known_driver(courier_principal_id)
+       when is_binary(courier_principal_id) and courier_principal_id != "" do
+    case Tracking.courier_standing(courier_principal_id) do
+      {:ok, _standing} -> :ok
+      {:error, :identity_unavailable} -> {:error, :identity_unavailable}
+      {:error, _reason} -> {:error, :driver_not_found}
     end
   end
 
-  @spec claim_chosen(Types.id()) ::
+  defp ensure_known_driver(_courier_principal_id), do: {:error, :driver_not_found}
+
+  @spec claim_chosen(Types.principal_id()) ::
           {:ok, DriverState.t()} | {:error, :driver_not_tracked | :driver_unavailable}
-  defp claim_chosen(driver_id) do
-    case DriverState.claim(driver_id) do
+  defp claim_chosen(courier_principal_id) do
+    case DriverState.claim(courier_principal_id) do
       {:ok, claimed} -> {:ok, claimed}
       {:error, :not_found} -> {:error, :driver_not_tracked}
       {:error, :unavailable} -> {:error, :driver_unavailable}
@@ -536,14 +559,14 @@ defmodule KinetixMatching.Dispatch do
     {order.pickup_latitude, order.pickup_longitude}
     |> Tracking.nearby(radius_km, status: :online, min_capacity_kg: order.weight_kg, fresh: true)
     |> Enum.map(fn {state, _distance} -> state end)
-    |> Enum.reject(&MapSet.member?(taken_off, &1.driver_id))
+    |> Enum.reject(&MapSet.member?(taken_off, &1.courier_principal_id))
   end
 
-  @spec drivers_taken_off(Types.id()) :: MapSet.t(Types.id())
+  @spec drivers_taken_off(Types.id()) :: MapSet.t(Types.principal_id())
   defp drivers_taken_off(order_id) do
     Unassignment
-    |> where([u], u.order_id == ^order_id)
-    |> select([u], u.driver_id)
+    |> where([u], u.delivery_id == ^order_id)
+    |> select([u], u.courier_principal_id)
     |> Repo.all()
     |> MapSet.new()
   end
@@ -553,7 +576,7 @@ defmodule KinetixMatching.Dispatch do
   defp first_successful_claim([]), do: {:error, :no_driver_available}
 
   defp first_successful_claim([candidate | rest]) do
-    case DriverState.claim(candidate.driver_id) do
+    case DriverState.claim(candidate.courier_principal_id) do
       {:ok, claimed} -> {:ok, claimed}
       {:error, _reason} -> first_successful_claim(rest)
     end
@@ -563,21 +586,21 @@ defmodule KinetixMatching.Dispatch do
           {:ok, Order.t()} | {:error, :not_found | :already_assigned | Order.changeset()}
   defp persist_assignment(order, driver_state) do
     order
-    |> write_assignment(driver_state.driver_id)
-    |> release_on_failure(driver_state.driver_id)
-    |> broadcast_on_success(driver_state.driver_id)
+    |> write_assignment(driver_state.courier_principal_id)
+    |> release_on_failure(driver_state.courier_principal_id)
+    |> broadcast_on_success(driver_state.courier_principal_id)
   end
 
-  @spec write_assignment(Order.t(), Types.id()) ::
+  @spec write_assignment(Order.t(), Types.principal_id()) ::
           {:ok, Order.t()} | {:error, :not_found | :already_assigned | Order.changeset()}
-  defp write_assignment(order, driver_id) do
+  defp write_assignment(order, courier_principal_id) do
     fn ->
       with {:ok, locked} <- lock_order(order.id),
            :ok <- ensure_pending(locked) do
         locked
         |> Ecto.Changeset.change(
           status: :assigned,
-          driver_id: driver_id,
+          courier_principal_id: courier_principal_id,
           assigned_at: DateTime.utc_now()
         )
         |> bump_sequence(locked)
@@ -587,30 +610,30 @@ defmodule KinetixMatching.Dispatch do
     |> Repo.transact()
   rescue
     exception ->
-      _ = DriverState.release(driver_id)
+      _ = DriverState.release(courier_principal_id)
       reraise exception, __STACKTRACE__
   catch
     :exit, reason ->
-      _ = DriverState.release(driver_id)
+      _ = DriverState.release(courier_principal_id)
       exit(reason)
   end
 
-  @spec broadcast_on_success({:ok, Order.t()} | {:error, term()}, Types.id()) ::
+  @spec broadcast_on_success({:ok, Order.t()} | {:error, term()}, Types.principal_id()) ::
           {:ok, Order.t()} | {:error, term()}
-  defp broadcast_on_success({:ok, order} = ok, driver_id) do
-    :ok = Events.broadcast(driver_id, {:order_assigned, order})
+  defp broadcast_on_success({:ok, order} = ok, courier_principal_id) do
+    :ok = Events.broadcast(courier_principal_id, {:order_assigned, order})
     :ok = Events.broadcast_order(order)
     ok
   end
 
-  defp broadcast_on_success({:error, _reason} = error, _driver_id), do: error
+  defp broadcast_on_success({:error, _reason} = error, _courier_principal_id), do: error
 
-  @spec release_on_failure({:ok, Order.t()} | {:error, term()}, Types.id()) ::
+  @spec release_on_failure({:ok, Order.t()} | {:error, term()}, Types.principal_id()) ::
           {:ok, Order.t()} | {:error, term()}
-  defp release_on_failure({:ok, _order} = ok, _driver_id), do: ok
+  defp release_on_failure({:ok, _order} = ok, _courier_principal_id), do: ok
 
-  defp release_on_failure({:error, _reason} = error, driver_id) do
-    _ = DriverState.release(driver_id)
+  defp release_on_failure({:error, _reason} = error, courier_principal_id) do
+    _ = DriverState.release(courier_principal_id)
     error
   end
 
@@ -626,9 +649,12 @@ defmodule KinetixMatching.Dispatch do
     end
   end
 
-  @spec ensure_owner(Order.t(), Types.id()) :: :ok | {:error, :forbidden}
-  defp ensure_owner(%Order{driver_id: driver_id}, driver_id), do: :ok
-  defp ensure_owner(%Order{}, _driver_id), do: {:error, :forbidden}
+  @spec ensure_owner(Order.t(), Types.principal_id()) :: :ok | {:error, :forbidden}
+  defp ensure_owner(%Order{courier_principal_id: courier_principal_id}, courier_principal_id)
+       when is_binary(courier_principal_id) and courier_principal_id != "",
+       do: :ok
+
+  defp ensure_owner(%Order{}, _courier_principal_id), do: {:error, :forbidden}
 
   @spec advance(Order.t(), Order.status()) ::
           {:ok, {Order.t(), outcome()}} | {:error, :invalid_transition | Order.changeset()}
@@ -688,9 +714,10 @@ defmodule KinetixMatching.Dispatch do
   defp announce_transition({:error, reason}) when is_atom(reason), do: {:error, reason}
 
   @spec release_if_terminal(Order.t()) :: :ok
-  defp release_if_terminal(%Order{status: status, driver_id: driver_id})
-       when status in [:delivered, :cancelled] and is_integer(driver_id) do
-    _ = DriverState.release(driver_id)
+  defp release_if_terminal(%Order{status: status, courier_principal_id: courier_principal_id})
+       when status in [:delivered, :cancelled] and is_binary(courier_principal_id) and
+              courier_principal_id != "" do
+    _ = DriverState.release(courier_principal_id)
     :ok
   end
 
@@ -704,8 +731,9 @@ defmodule KinetixMatching.Dispatch do
   defp report_if_delivered(%Order{}), do: :ok
 
   @spec broadcast_transition(Order.t()) :: :ok
-  defp broadcast_transition(%Order{driver_id: driver_id} = order) when is_integer(driver_id) do
-    Events.broadcast(driver_id, {:order_updated, order})
+  defp broadcast_transition(%Order{courier_principal_id: courier_principal_id} = order)
+       when is_binary(courier_principal_id) and courier_principal_id != "" do
+    Events.broadcast(courier_principal_id, {:order_updated, order})
   end
 
   defp broadcast_transition(%Order{}), do: :ok
@@ -733,7 +761,7 @@ defmodule KinetixMatching.Dispatch do
     :telemetry.execute(
       [:kinetix_matching, :dispatch, :order_assigned],
       %{count: 1, time_to_assign_ms: ms},
-      %{order_id: order.id, driver_id: order.driver_id}
+      %{order_id: order.id, courier_principal_id: order.courier_principal_id}
     )
   end
 

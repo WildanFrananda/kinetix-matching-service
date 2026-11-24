@@ -1,7 +1,7 @@
 defmodule KinetixMatchingWeb.Events.EnvelopeTest do
   use ExUnit.Case, async: true
 
-  alias KinetixMatching.Dispatch.Order
+  alias KinetixMatching.Dispatch.Delivery, as: Order
   alias KinetixMatchingWeb.Events.Envelope
   alias KinetixMatchingWeb.Events.Mapper
 
@@ -43,7 +43,7 @@ defmodule KinetixMatchingWeb.Events.EnvelopeTest do
       awb_number: "KNX-42",
       status: :assigned,
       merchant_principal_id: "merchant-1",
-      driver_id: 7,
+      courier_principal_id: "principal-7",
       weight_kg: 12,
       pickup_latitude: -6.2,
       pickup_longitude: 106.8,
@@ -62,7 +62,7 @@ defmodule KinetixMatchingWeb.Events.EnvelopeTest do
     assert mapped.awbNumber == "KNX-42"
     assert mapped.status == "assigned"
     assert mapped.merchantPrincipalId == "merchant-1"
-    assert mapped.driverId == 7
+    assert mapped.courierPrincipalId == "principal-7"
     assert mapped.weightKg == 12
     assert mapped.eventSequence == 3
     assert mapped.assignedAt == DateTime.to_iso8601(now)

@@ -4,14 +4,13 @@ defmodule KinetixMatching.GrpcEndpoint do
   """
   use GRPC.Endpoint
 
-  intercept KinetixMatching.Observability.GrpcMetricsInterceptor
-  intercept KinetixMatching.Observability.RequestIdInterceptor
-  intercept KinetixMatching.Security.PeerAuthorizationInterceptor
+  intercept(KinetixMatching.Observability.GrpcMetricsInterceptor)
+  intercept(KinetixMatching.Observability.RequestIdInterceptor)
+  intercept(KinetixMatching.Security.PeerAuthorizationInterceptor)
 
-  run KinetixMatching.CourierTelemetryServer
-  run KinetixMatching.Servers.FleetRegistryServer
-  run KinetixMatching.Servers.ShippingServer
-  run KinetixMatching.Servers.DeliveryEvidenceServer
-  run KinetixMatching.GrpcReflectionServer
-  run KinetixMatching.GrpcReflectionServerV1alpha
+  run(KinetixMatching.CourierTelemetryServer)
+  run(KinetixMatching.Servers.ShippingServer)
+  run(KinetixMatching.Servers.DeliveryEvidenceServer)
+  run(KinetixMatching.GrpcReflectionServer)
+  run(KinetixMatching.GrpcReflectionServerV1alpha)
 end

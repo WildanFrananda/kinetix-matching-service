@@ -7,7 +7,7 @@ defmodule KinetixMatching.Tracking.LocationPingTest do
     attrs =
       Map.merge(
         %{
-          driver_id: 1,
+          courier_principal_id: "principal-1",
           latitude: -6.2,
           longitude: 106.816666,
           recorded_at: DateTime.utc_now()
@@ -22,7 +22,7 @@ defmodule KinetixMatching.Tracking.LocationPingTest do
     assert changeset().valid?
   end
 
-  test "requires driver_id, coordinates and recorded_at" do
+  test "requires courier_principal_id, coordinates and recorded_at" do
     refute LocationPing.changeset(%LocationPing{}, %{}).valid?
   end
 

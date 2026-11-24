@@ -21,7 +21,7 @@ cd "$HERE"
 #
 # payment left this list on 2026-09-20: settling a delivered order's fee was this service deciding
 # when money moves, which is the order saga's call. (docs/BOUNDARY-DEBT.md S2)
-PACKAGES="common/v1/common fleet/v1/fleet fleet/v1/registry shipping/v1/shipping order/v1/order identity/v1/identity fulfillment/v1/delivery_evidence"
+PACKAGES="common/v1/common fleet/v1/fleet shipping/v1/shipping order/v1/order identity/v1/identity fulfillment/v1/delivery_evidence"
 
 INCLUDE="${PROTOC_INCLUDE:-}"
 if [ -z "$INCLUDE" ]; then

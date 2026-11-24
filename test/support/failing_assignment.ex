@@ -20,7 +20,7 @@ defmodule KinetixMatching.FailingAssignment do
 
     %Postgrex.Result{} =
       Repo.query!("""
-      CREATE TRIGGER refuse_assignment_in_test BEFORE UPDATE ON orders
+      CREATE TRIGGER refuse_assignment_in_test BEFORE UPDATE ON deliveries
       FOR EACH ROW WHEN (NEW.status = 'assigned') EXECUTE FUNCTION refuse_assignment_in_test()
       """)
 

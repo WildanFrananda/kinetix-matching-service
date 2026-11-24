@@ -111,9 +111,8 @@ defmodule KinetixMatchingWeb.EventSocketPlug do
 
   @spec authorize_courier(String.t()) :: {:ok, EventSocket.init_arg()} | {:error, atom()}
   defp authorize_courier(principal_id) do
-    with {:ok, driver} <- Tracking.driver_for_principal(principal_id),
-         {:ok, _active} <- Tracking.fetch_active_driver(driver.id) do
-      {:ok, %{role: :courier, driver_id: driver.id}}
+    with {:ok, _standing} <- Tracking.driver_for_principal(principal_id) do
+      {:ok, %{role: :courier, courier_principal_id: principal_id}}
     end
   end
 

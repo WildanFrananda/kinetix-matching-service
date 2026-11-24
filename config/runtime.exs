@@ -48,6 +48,13 @@ required = fn name, what ->
 end
 
 if config_env() != :test do
+  config :kinetix_matching, KinetixMatching.Clients.IdentityGrpc,
+    host:
+      required.(
+        "IDENTITY_GRPC_HOST",
+        "the host:port of identity's gRPC server, asked for a courier's vehicle and standing"
+      )
+
   config :kinetix_matching, KinetixMatching.Clients.OrderGrpc,
     host:
       required.("ORDER_GRPC_HOST", "the host:port of order's gRPC server, told of every delivery")

@@ -25,9 +25,9 @@ defmodule KinetixMatching.Tracking.OfflineHistoryTest do
     )
   end
 
-  defp history(driver_id) do
+  defp history(courier_principal_id) do
     LocationPing
-    |> where([p], p.driver_id == ^driver_id)
+    |> where([p], p.courier_principal_id == ^courier_principal_id)
     |> order_by([p], asc: p.recorded_at)
     |> Repo.all()
   end

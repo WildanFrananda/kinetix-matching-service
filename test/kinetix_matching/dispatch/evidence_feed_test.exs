@@ -3,9 +3,9 @@ defmodule KinetixMatching.Dispatch.EvidenceFeedTest do
 
   import Ecto.Query
 
+  alias KinetixMatching.Dispatch.Delivery, as: Order
   alias KinetixMatching.Dispatch.DeliveryEvidence
   alias KinetixMatching.Dispatch.EvidenceFeed
-  alias KinetixMatching.Dispatch.Order
   alias KinetixMatching.Proto.Common.V1.LogCursor
   alias KinetixMatching.Proto.Fulfillment.V1.DeliveriesSinceRequest
   alias KinetixMatching.Proto.Fulfillment.V1.DeliveriesSinceResponse
@@ -13,7 +13,6 @@ defmodule KinetixMatching.Dispatch.EvidenceFeedTest do
   alias KinetixMatching.Repo
   alias KinetixMatching.ScratchDatabase
   alias KinetixMatching.Servers.DeliveryEvidenceServer
-  alias KinetixMatching.Tracking.Driver
 
   setup_all do
     database = ScratchDatabase.start!()
@@ -25,14 +24,8 @@ defmodule KinetixMatching.Dispatch.EvidenceFeedTest do
     ScratchDatabase.use!(database)
   end
 
-  defp courier! do
-    unique = System.unique_integer([:positive])
-
-    Repo.insert!(%Driver{
-      vehicle_plate: "B #{unique} EV",
-      capacity_kg: 100,
-      principal_id: "courier-#{unique}"
-    })
+  defp courier_principal do
+    "courier-#{System.unique_integer([:positive])}"
   end
 
   defp job!(order_number) do
@@ -43,7 +36,7 @@ defmodule KinetixMatching.Dispatch.EvidenceFeedTest do
       dropoff_longitude: 107.6,
       status: :picked_up,
       order_number: order_number,
-      driver_id: courier!().id
+      courier_principal_id: courier_principal()
     })
   end
 
@@ -223,6 +216,24 @@ defmodule KinetixMatching.Dispatch.EvidenceFeedTest do
     _ =
       Ecto.Migrator.down(
         Repo,
+        20_261_123_042_000,
+        KinetixMatching.Repo.Migrations.KeyOnCourierPrincipalAndDropDrivers,
+        dynamic_repo: database.repo,
+        log: false
+      )
+
+    _ =
+      Ecto.Migrator.down(
+        Repo,
+        20_261_123_041_000,
+        KinetixMatching.Repo.Migrations.RenameOrdersToDeliveries,
+        dynamic_repo: database.repo,
+        log: false
+      )
+
+    _ =
+      Ecto.Migrator.down(
+        Repo,
         20_261_016_160_000,
         KinetixMatching.Repo.Migrations.DeliveriesKeepAnEvidenceLog,
         dynamic_repo: database.repo,
@@ -234,14 +245,7 @@ defmodule KinetixMatching.Dispatch.EvidenceFeedTest do
     assert %{rows: [[0]]} =
              Repo.query!(
                "SELECT count(*)::int FROM pg_proc WHERE proname IN " <>
-                 "('delivery_evidence_is_append_only', 'order_delivery_is_logged')"
-             )
-
-    order = job!(number())
-
-    assert {1, _} =
-             Repo.update_all(from(o in Order, where: o.id == ^order.id),
-               set: [status: :delivered]
+                 "('delivery_evidence_is_append_only', 'order_delivery_is_logged', 'delivery_is_logged')"
              )
 
     _ =
@@ -253,6 +257,24 @@ defmodule KinetixMatching.Dispatch.EvidenceFeedTest do
         log: false
       )
 
+    _ =
+      Ecto.Migrator.up(
+        Repo,
+        20_261_123_041_000,
+        KinetixMatching.Repo.Migrations.RenameOrdersToDeliveries,
+        dynamic_repo: database.repo,
+        log: false
+      )
+
+    _ =
+      Ecto.Migrator.up(
+        Repo,
+        20_261_123_042_000,
+        KinetixMatching.Repo.Migrations.KeyOnCourierPrincipalAndDropDrivers,
+        dynamic_repo: database.repo,
+        log: false
+      )
+
     assert_raise Postgrex.Error, ~r/with no evidence written before it/, fn ->
       Repo.insert!(%Order{
         pickup_latitude: -6.2,
@@ -260,7 +282,7 @@ defmodule KinetixMatching.Dispatch.EvidenceFeedTest do
         dropoff_latitude: -6.9,
         dropoff_longitude: 107.6,
         status: :delivered,
-        driver_id: courier!().id
+        courier_principal_id: courier_principal()
       })
     end
   end

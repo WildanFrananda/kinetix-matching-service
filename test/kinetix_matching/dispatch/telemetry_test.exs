@@ -11,7 +11,7 @@ defmodule KinetixMatching.Dispatch.TelemetryTest do
   @pickup {-6.1754, 106.8272}
 
   setup do
-    Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
+    Enum.each(StateCache.all(), &StateCache.delete(&1.courier_principal_id))
 
     test_pid = self()
 

@@ -29,17 +29,18 @@ defmodule KinetixMatching.CourierTelemetryServer do
              point(request.delivery_point),
              request.parcel_weight_grams
            ),
-         {:ok, driver} <- fetch_assigned_driver(order),
-         {:ok, principal_id} <- payable_principal(order, driver) do
+         {:ok, principal_id} <- payable_principal(order) do
+      vehicle_plate = assigned_vehicle_plate(principal_id)
+
       Logger.info(
-        "[KinetixMatching gRPC Server] Order #{order.id} assigned to driver #{driver.id} (#{principal_id})"
+        "[KinetixMatching gRPC Server] Order #{order.id} assigned to courier #{principal_id}"
       )
 
       %DispatchCourierResponse{
         success: true,
         dispatch_ref: "DISP-" <> Integer.to_string(order.id),
         assigned_driver_principal_id: principal_id,
-        vehicle: driver.vehicle_plate || "",
+        vehicle: vehicle_plate,
         awb_number: order.awb_number || ""
       }
     else
@@ -55,19 +56,39 @@ defmodule KinetixMatching.CourierTelemetryServer do
 
   defp point(_absent), do: nil
 
-  @spec fetch_assigned_driver(KinetixMatching.Dispatch.Order.t()) ::
-          {:ok, KinetixMatching.Tracking.Driver.t()} | {:error, :not_found}
-  defp fetch_assigned_driver(%{driver_id: nil}), do: {:error, :not_found}
-  defp fetch_assigned_driver(%{driver_id: driver_id}), do: Tracking.fetch_driver(driver_id)
+  @spec payable_principal(KinetixMatching.Dispatch.Delivery.t()) ::
+          {:ok, String.t()}
+          | {:error, {:driver_not_payable, integer(), String.t()} | :identity_unavailable}
+  defp payable_principal(%{courier_principal_id: principal_id} = order)
+       when is_binary(principal_id) and principal_id != "" do
+    case Tracking.courier_standing(principal_id) do
+      {:ok, %{courier_principal_id: resolved}} when is_binary(resolved) and resolved != "" ->
+        {:ok, resolved}
 
-  @spec payable_principal(KinetixMatching.Dispatch.Order.t(), KinetixMatching.Tracking.Driver.t()) ::
-          {:ok, String.t()} | {:error, {:driver_not_payable, integer(), integer()}}
-  defp payable_principal(_order, %{principal_id: principal_id})
-       when is_binary(principal_id) and principal_id != "",
-       do: {:ok, principal_id}
+      {:error, :identity_unavailable} ->
+        {:error, :identity_unavailable}
 
-  defp payable_principal(order, driver),
-    do: {:error, {:driver_not_payable, order.id, driver.id}}
+      {:error, _reason} ->
+        {:error, {:driver_not_payable, order.id, principal_id}}
+    end
+  end
+
+  defp payable_principal(order),
+    do: {:error, {:driver_not_payable, order.id, ""}}
+
+  @spec assigned_vehicle_plate(String.t()) :: String.t()
+  defp assigned_vehicle_plate(courier_principal_id) do
+    case Tracking.fetch_state(courier_principal_id) do
+      {:ok, state} ->
+        state.vehicle_plate || ""
+
+      {:error, :not_found} ->
+        case Tracking.courier_standing(courier_principal_id) do
+          {:ok, standing} -> standing.vehicle_plate || ""
+          {:error, _reason} -> ""
+        end
+    end
+  end
 
   @spec refuse(KinetixMatching.Proto.Fleet.V1.DispatchCourierRequest.t(), term()) ::
           DispatchCourierResponse.t()
@@ -117,12 +138,18 @@ defmodule KinetixMatching.CourierTelemetryServer do
   defp describe(:no_driver_available),
     do: {"NO_DRIVER_AVAILABLE", "no online driver is within range with enough capacity"}
 
-  defp describe({:driver_not_payable, order_id, driver_id}) do
+  defp describe({:driver_not_payable, order_id, courier_principal_id}) do
     {
       "DRIVER_NOT_PAYABLE",
-      "order #{order_id} is assigned to driver #{driver_id}, who has no identity principal and " <>
+      "order #{order_id} is assigned to courier #{courier_principal_id}, who has no active identity principal and " <>
         "cannot be paid. The assignment stands; link or reassign the driver."
     }
+  end
+
+  defp describe(:identity_unavailable) do
+    raise GRPC.RPCError,
+      status: GRPC.Status.unavailable(),
+      message: "identity service unavailable while verifying courier standing"
   end
 
   defp describe(%Ecto.Changeset{} = changeset) do

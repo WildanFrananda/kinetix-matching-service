@@ -8,7 +8,7 @@ defmodule KinetixMatching.Dispatch.ReDispatcher do
   require Logger
 
   alias KinetixMatching.Dispatch
-  alias KinetixMatching.Dispatch.Order
+  alias KinetixMatching.Dispatch.Delivery, as: Order
   alias KinetixMatching.Tracking
   alias KinetixMatching.Tracking.DriverState
 

@@ -19,13 +19,13 @@ defmodule KinetixMatching.Tracking.PingRetentionTest do
     :ok
   end
 
-  defp insert_ping(driver_id, inserted_at) do
+  defp insert_ping(courier_principal_id, inserted_at) do
     {1, [%{id: id}]} =
       Repo.insert_all(
         LocationPing,
         [
           %{
-            driver_id: driver_id,
+            courier_principal_id: courier_principal_id,
             latitude: -6.2,
             longitude: 106.8,
             recorded_at: DateTime.utc_now(),

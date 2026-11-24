@@ -9,7 +9,7 @@ defmodule KinetixMatching.Tracking.IdleReaperTest do
   alias KinetixMatching.Tracking.StateCache
 
   setup do
-    Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
+    Enum.each(StateCache.all(), &StateCache.delete(&1.courier_principal_id))
     :ok
   end
 

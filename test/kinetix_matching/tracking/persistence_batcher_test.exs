@@ -9,7 +9,7 @@ defmodule KinetixMatching.Tracking.PersistenceBatcherTest do
   alias KinetixMatching.Tracking.StateCache
 
   setup do
-    Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
+    Enum.each(StateCache.all(), &StateCache.delete(&1.courier_principal_id))
 
     driver = driver_fixture()
     start_supervised!(PersistenceBatcher)
@@ -23,8 +23,8 @@ defmodule KinetixMatching.Tracking.PersistenceBatcherTest do
     %{driver: driver}
   end
 
-  defp pings_for(driver_id) do
-    Repo.all(from(p in LocationPing, where: p.driver_id == ^driver_id))
+  defp pings_for(courier_principal_id) do
+    Repo.all(from(p in LocationPing, where: p.courier_principal_id == ^courier_principal_id))
   end
 
   test "persists a ping whose recorded_at carries only second precision", %{driver: driver} do

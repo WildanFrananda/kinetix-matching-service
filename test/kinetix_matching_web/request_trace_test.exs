@@ -4,8 +4,8 @@ defmodule KinetixMatchingWeb.RequestTraceTest do
   import ExUnit.CaptureLog
   import KinetixMatching.TrackingFixtures
 
+  alias KinetixMatching.FakeIdentity
   alias KinetixMatching.IdentityJwks
-  alias KinetixMatching.Repo
   alias KinetixMatching.Security.TokenVerifier
 
   @earlier_id "kong-earlier-request-0001-aaaaaaaaaaaa"
@@ -103,8 +103,10 @@ defmodule KinetixMatchingWeb.RequestTraceTest do
     conn
   end
 
-  defp while_the_database_cannot_serve(fun) do
-    Repo.checkout(fn -> capture_log(fun) end)
+  defp while_identity_is_unreachable(fun) do
+    FakeIdentity.unreachable(true)
+    on_exit(fn -> FakeIdentity.unreachable(false) end)
+    capture_log(fun)
   end
 
   defp without_the_token_verifier(fun) do
@@ -117,14 +119,14 @@ defmodule KinetixMatchingWeb.RequestTraceTest do
     capture_log(fun)
   end
 
-  describe "a driver handshake the database fails" do
+  describe "a driver handshake when identity is unreachable" do
     test "names this request's id, not the one an earlier request left on the connection" do
       port = listen()
       conn = served_earlier(port)
 
-      while_the_database_cannot_serve(fn ->
-        response =
-          exchange_raising(
+      while_identity_is_unreachable(fn ->
+        {_conn, response} =
+          exchange(
             conn,
             @socket,
             upgrade(courier_token(), @this_id)
@@ -140,9 +142,9 @@ defmodule KinetixMatchingWeb.RequestTraceTest do
       port = listen()
       conn = served_earlier(port)
 
-      while_the_database_cannot_serve(fn ->
-        response =
-          exchange_raising(conn, @socket, upgrade(courier_token(), nil))
+      while_identity_is_unreachable(fn ->
+        {_conn, response} =
+          exchange(conn, @socket, upgrade(courier_token(), nil))
 
         assert response.status == 503
         assert [fresh] = header(response, "x-request-id")
@@ -154,12 +156,12 @@ defmodule KinetixMatchingWeb.RequestTraceTest do
     test "names this request's id on a fresh connection, never a dash" do
       port = listen()
 
-      while_the_database_cannot_serve(fn ->
+      while_identity_is_unreachable(fn ->
         for request_id <- [@this_id, nil] do
-          response =
+          {_conn, response} =
             port
             |> connect()
-            |> exchange_raising(
+            |> exchange(
               @socket,
               upgrade(courier_token(), request_id)
             )

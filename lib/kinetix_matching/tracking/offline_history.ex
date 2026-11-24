@@ -28,11 +28,13 @@ defmodule KinetixMatching.Tracking.OfflineHistory do
   @spec max_batch() :: pos_integer()
   def max_batch, do: @max_batch
 
-  @spec record(Types.id(), term(), DateTime.t()) :: {:ok, outcome()} | {:error, error()}
-  def record(_driver_id, pings, _now) when is_list(pings) and length(pings) > @max_batch,
-    do: {:error, :batch_too_large}
+  @spec record(Types.principal_id(), term(), DateTime.t()) :: {:ok, outcome()} | {:error, error()}
+  def record(_courier_principal_id, pings, _now)
+      when is_list(pings) and length(pings) > @max_batch,
+      do: {:error, :batch_too_large}
 
-  def record(driver_id, pings, now) when is_list(pings) do
+  def record(courier_principal_id, pings, now)
+      when is_binary(courier_principal_id) and courier_principal_id != "" and is_list(pings) do
     {accepted, refused} =
       pings
       |> Enum.with_index()
@@ -41,7 +43,7 @@ defmodule KinetixMatching.Tracking.OfflineHistory do
 
     {first, repeated} = first_of_each_moment(accepted)
 
-    with {:ok, inserted} <- insert(driver_id, first, now) do
+    with {:ok, inserted} <- insert(courier_principal_id, first, now) do
       {stored, duplicates} = Enum.split_with(first, &MapSet.member?(inserted, moment(&1)))
 
       {:ok,
@@ -54,7 +56,7 @@ defmodule KinetixMatching.Tracking.OfflineHistory do
     end
   end
 
-  def record(_driver_id, _pings, _now), do: {:error, :invalid_batch}
+  def record(_courier_principal_id, _pings, _now), do: {:error, :invalid_batch}
 
   @spec classify(term(), non_neg_integer(), DateTime.t()) ::
           {:ok, non_neg_integer(), Telemetry.t()} | {:error, non_neg_integer(), refusal()}
@@ -98,15 +100,17 @@ defmodule KinetixMatching.Tracking.OfflineHistory do
     {Enum.reverse(first), Enum.reverse(repeated)}
   end
 
-  @spec insert(Types.id(), [{:ok, non_neg_integer(), Telemetry.t()}], DateTime.t()) ::
+  @spec insert(Types.principal_id(), [{:ok, non_neg_integer(), Telemetry.t()}], DateTime.t()) ::
           {:ok, MapSet.t(integer())} | {:error, :unavailable}
-  defp insert(_driver_id, [], _now), do: {:ok, MapSet.new()}
+  defp insert(_courier_principal_id, [], _now), do: {:ok, MapSet.new()}
 
-  defp insert(driver_id, entries, now) do
+  defp insert(courier_principal_id, entries, now) do
     stored_at = %{now | microsecond: {elem(now.microsecond, 0), 6}}
 
     rows =
-      Enum.map(entries, fn {:ok, _index, telemetry} -> row(driver_id, telemetry, stored_at) end)
+      Enum.map(entries, fn {:ok, _index, telemetry} ->
+        row(courier_principal_id, telemetry, stored_at)
+      end)
 
     {_count, inserted} =
       Repo.insert_all(LocationPing, rows, on_conflict: :nothing, returning: [:recorded_at])
@@ -115,17 +119,17 @@ defmodule KinetixMatching.Tracking.OfflineHistory do
   rescue
     error ->
       Logger.error(
-        "[Tracking] offline positions of driver #{driver_id} could not be stored: " <>
+        "[Tracking] offline positions of courier #{courier_principal_id} could not be stored: " <>
           Exception.message(error)
       )
 
       {:error, :unavailable}
   end
 
-  @spec row(Types.id(), Telemetry.t(), DateTime.t()) :: map()
-  defp row(driver_id, telemetry, stored_at) do
+  @spec row(Types.principal_id(), Telemetry.t(), DateTime.t()) :: map()
+  defp row(courier_principal_id, telemetry, stored_at) do
     %{
-      driver_id: driver_id,
+      courier_principal_id: courier_principal_id,
       latitude: telemetry.latitude,
       longitude: telemetry.longitude,
       speed_kmh: telemetry.speed_kmh,

@@ -6,7 +6,7 @@ defmodule KinetixMatchingWeb.Api.V1.DispatchController do
   use KinetixMatchingWeb, :controller
 
   alias KinetixMatching.Dispatch
-  alias KinetixMatching.Dispatch.Order
+  alias KinetixMatching.Dispatch.Delivery, as: Order
   alias KinetixMatching.Security.AccessClaims
 
   @max_page_size 200
@@ -47,9 +47,11 @@ defmodule KinetixMatchingWeb.Api.V1.DispatchController do
 
   @spec for_driver(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def for_driver(conn, %{"driver_id" => id}) do
-    case parse_id(id) do
-      {:ok, driver_id} ->
-        json(conn, %{data: Enum.map(Dispatch.active_orders_for_driver(driver_id), &serialize/1)})
+    case parse_principal_id(id) do
+      {:ok, courier_principal_id} ->
+        json(conn, %{
+          data: Enum.map(Dispatch.active_orders_for_driver(courier_principal_id), &serialize/1)
+        })
 
       :error ->
         error(conn, :bad_request, "invalid_id")
@@ -57,10 +59,10 @@ defmodule KinetixMatchingWeb.Api.V1.DispatchController do
   end
 
   @spec assign(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def assign(conn, %{"id" => id, "driver_id" => driver}) do
+  def assign(conn, %{"id" => id, "courier_principal_id" => courier}) do
     with {:ok, dispatch_id} <- parse_id(id),
-         {:ok, driver_id} <- parse_id(driver),
-         {:ok, order} <- Dispatch.assign_order_to_driver(dispatch_id, driver_id) do
+         {:ok, courier_principal_id} <- parse_principal_id(courier),
+         {:ok, order} <- Dispatch.assign_order_to_driver(dispatch_id, courier_principal_id) do
       json(conn, %{data: serialize(order)})
     else
       {:error, %Ecto.Changeset{}} -> error(conn, :unprocessable_entity, "assignment_refused")
@@ -69,11 +71,12 @@ defmodule KinetixMatchingWeb.Api.V1.DispatchController do
       {:error, :already_assigned} -> error(conn, :conflict, "already_assigned")
       {:error, :driver_not_tracked} -> error(conn, :conflict, "driver_not_tracked")
       {:error, :driver_unavailable} -> error(conn, :conflict, "driver_unavailable")
+      {:error, :identity_unavailable} -> error(conn, :service_unavailable, "identity_unavailable")
       :error -> error(conn, :bad_request, "invalid_id")
     end
   end
 
-  def assign(conn, _params), do: error(conn, :bad_request, "driver_id_required")
+  def assign(conn, _params), do: error(conn, :bad_request, "courier_principal_id_required")
 
   @spec unassign(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def unassign(conn, %{"id" => id}) do
@@ -113,7 +116,7 @@ defmodule KinetixMatchingWeb.Api.V1.DispatchController do
       status: order.status,
       merchant_principal_id: order.merchant_principal_id,
       weight_kg: order.weight_kg,
-      driver_id: order.driver_id,
+      courier_principal_id: order.courier_principal_id,
       pickup: %{latitude: order.pickup_latitude, longitude: order.pickup_longitude},
       dropoff: %{latitude: order.dropoff_latitude, longitude: order.dropoff_longitude},
       assigned_at: order.assigned_at,
@@ -177,6 +180,16 @@ defmodule KinetixMatchingWeb.Api.V1.DispatchController do
   end
 
   defp parse_id(_id), do: :error
+
+  @spec parse_principal_id(term()) :: {:ok, String.t()} | :error
+  defp parse_principal_id(id) when is_binary(id) do
+    case String.trim(id) do
+      "" -> :error
+      trimmed -> {:ok, trimmed}
+    end
+  end
+
+  defp parse_principal_id(_id), do: :error
 
   @spec error(Plug.Conn.t(), atom(), String.t()) :: Plug.Conn.t()
   defp error(conn, status, message) do

@@ -4,7 +4,7 @@ defmodule KinetixMatchingWeb.Events.Mapper do
   into unified X21 wire maps.
   """
 
-  alias KinetixMatching.Dispatch.Order
+  alias KinetixMatching.Dispatch.Delivery, as: Order
   alias KinetixMatching.Tracking.Telemetry
   alias KinetixMatching.Types
   alias KinetixMatchingWeb.Events.Envelope
@@ -17,7 +17,7 @@ defmodule KinetixMatchingWeb.Events.Mapper do
       awbNumber: order.awb_number,
       status: Atom.to_string(order.status),
       merchantPrincipalId: order.merchant_principal_id,
-      driverId: order.driver_id,
+      courierPrincipalId: order.courier_principal_id,
       weightKg: order.weight_kg,
       pickup: %{latitude: order.pickup_latitude, longitude: order.pickup_longitude},
       dropoff: %{latitude: order.dropoff_latitude, longitude: order.dropoff_longitude},
@@ -29,10 +29,10 @@ defmodule KinetixMatchingWeb.Events.Mapper do
     }
   end
 
-  @spec position_payload(Types.id(), Telemetry.t()) :: map()
-  def position_payload(driver_id, telemetry) do
+  @spec position_payload(Types.principal_id(), Telemetry.t()) :: map()
+  def position_payload(courier_principal_id, telemetry) do
     %{
-      driverId: driver_id,
+      courierPrincipalId: courier_principal_id,
       latitude: telemetry.latitude,
       longitude: telemetry.longitude,
       bearingDeg: telemetry.bearing_deg,

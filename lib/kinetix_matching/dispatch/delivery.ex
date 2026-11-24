@@ -1,6 +1,6 @@
-defmodule KinetixMatching.Dispatch.Order do
+defmodule KinetixMatching.Dispatch.Delivery do
   @moduledoc """
-  Ecto schema for a delivery order — a Pure Data Object (PODO).
+  Ecto schema for a delivery job (`deliveries` table) — a Pure Data Object (PODO).
   """
 
   use Ecto.Schema
@@ -8,7 +8,6 @@ defmodule KinetixMatching.Dispatch.Order do
   import Ecto.Changeset
 
   alias KinetixMatching.Dispatch.Proof
-  alias KinetixMatching.Tracking.Driver
   alias KinetixMatching.Types
 
   @type status :: :pending | :assigned | :picked_up | :delivered | :cancelled
@@ -22,7 +21,7 @@ defmodule KinetixMatching.Dispatch.Order do
           dropoff_longitude: Types.longitude() | nil,
           weight_kg: non_neg_integer() | nil,
           status: status() | nil,
-          driver_id: Types.id() | nil,
+          courier_principal_id: Types.principal_id() | nil,
           order_number: String.t() | nil,
           merchant_principal_id: String.t() | nil,
           awb_number: String.t() | nil,
@@ -34,7 +33,6 @@ defmodule KinetixMatching.Dispatch.Order do
           delivery_report_attempts: non_neg_integer(),
           delivery_report_next_at: DateTime.t() | nil,
           delivery_report_error: String.t() | nil,
-          driver: Driver.t() | Ecto.Association.NotLoaded.t() | nil,
           assigned_at: DateTime.t() | nil,
           inserted_at: DateTime.t() | nil,
           updated_at: DateTime.t() | nil
@@ -51,27 +49,26 @@ defmodule KinetixMatching.Dispatch.Order do
     :dropoff_longitude
   ]
 
-  schema "orders" do
-    field :pickup_latitude, :float
-    field :pickup_longitude, :float
-    field :dropoff_latitude, :float
-    field :dropoff_longitude, :float
-    field :weight_kg, :integer, default: 0
-    field :status, Ecto.Enum, values: @statuses, default: :pending
-    field :assigned_at, :utc_datetime_usec
-    field :order_number, :string
-    field :merchant_principal_id, :string
-    field :awb_number, :string
-    field :pod_photo_url, :string
-    field :pod_signature, :string
-    field :delivered_at, :utc_datetime_usec
-    field :event_sequence, :integer, default: 0
-    field :delivery_reported_at, :utc_datetime_usec
-    field :delivery_report_attempts, :integer, default: 0
-    field :delivery_report_next_at, :utc_datetime_usec
-    field :delivery_report_error, :string
-
-    belongs_to :driver, Driver
+  schema "deliveries" do
+    field(:pickup_latitude, :float)
+    field(:pickup_longitude, :float)
+    field(:dropoff_latitude, :float)
+    field(:dropoff_longitude, :float)
+    field(:weight_kg, :integer, default: 0)
+    field(:status, Ecto.Enum, values: @statuses, default: :pending)
+    field(:courier_principal_id, :string)
+    field(:assigned_at, :utc_datetime_usec)
+    field(:order_number, :string)
+    field(:merchant_principal_id, :string)
+    field(:awb_number, :string)
+    field(:pod_photo_url, :string)
+    field(:pod_signature, :string)
+    field(:delivered_at, :utc_datetime_usec)
+    field(:event_sequence, :integer, default: 0)
+    field(:delivery_reported_at, :utc_datetime_usec)
+    field(:delivery_report_attempts, :integer, default: 0)
+    field(:delivery_report_next_at, :utc_datetime_usec)
+    field(:delivery_report_error, :string)
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -92,8 +89,8 @@ defmodule KinetixMatching.Dispatch.Order do
     |> validate_coordinate(:dropoff_latitude, -90, 90)
     |> validate_coordinate(:dropoff_longitude, -180, 180)
     |> validate_number(:weight_kg, greater_than_or_equal_to: 0, less_than_or_equal_to: 5_000)
-    |> check_constraint(:pickup_latitude, name: :orders_pickup_latitude_range)
-    |> check_constraint(:dropoff_latitude, name: :orders_dropoff_latitude_range)
+    |> check_constraint(:pickup_latitude, name: :deliveries_pickup_latitude_range)
+    |> check_constraint(:dropoff_latitude, name: :deliveries_dropoff_latitude_range)
     |> unique_constraint(:order_number)
     |> unique_constraint(:awb_number)
   end

@@ -1,4 +1,5 @@
 KinetixMatching.IdentityJwks.start!()
+:ok = KinetixMatching.FakeIdentity.start()
 :ok = KinetixMatching.FakeStorage.start()
 :ok = KinetixMatching.FakePositionPublisher.start()
 
