@@ -150,6 +150,25 @@ defmodule KinetixMatching.DeliverySettlementTest do
     assert FakeOrder.calls() == []
   end
 
+  test "returns identity_unavailable instead of unlinked when identity is unreachable during delivery" do
+    {driver, _principal} = payable_driver()
+    number = "ORD-#{System.unique_integer([:positive])}"
+
+    {:ok, order} =
+      Dispatch.dispatch_for_order(number, "merchant-1", @pickup, {-6.2088, 106.8456}, 1_200)
+
+    {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+    FakeIdentity.unreachable(true)
+    on_exit(fn -> FakeIdentity.unreachable(false) end)
+
+    assert {:error, :identity_unavailable} =
+             Dispatch.mark_delivered(order.id, driver.id, proof_for(order.id))
+
+    assert Repo.get(Order, order.id).status == :picked_up
+    assert Repo.all(DeliveryEvidence) == []
+    assert FakeOrder.calls() == []
+  end
+
   test "a refused delivery reports nothing" do
     payable_driver()
     {impostor, _} = payable_driver()

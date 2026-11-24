@@ -22,17 +22,33 @@ defmodule KinetixMatching.Repo.Migrations.KeyOnCourierPrincipalAndDropDrivers do
     end
 
     execute("""
-    DELETE FROM location_pings
-    WHERE driver_id NOT IN (
-      SELECT id FROM drivers WHERE principal_id IS NOT NULL AND principal_id <> ''
-    )
-    """)
+    DO $$
+    DECLARE
+      unresolved_pings integer;
+      unresolved_unassignments integer;
+      unresolved_deliveries integer;
+    BEGIN
+      SELECT count(*) INTO unresolved_pings FROM location_pings
+      WHERE driver_id NOT IN (
+        SELECT id FROM drivers WHERE principal_id IS NOT NULL AND principal_id <> ''
+      );
 
-    execute("""
-    DELETE FROM order_unassignments
-    WHERE driver_id NOT IN (
-      SELECT id FROM drivers WHERE principal_id IS NOT NULL AND principal_id <> ''
-    )
+      SELECT count(*) INTO unresolved_unassignments FROM order_unassignments
+      WHERE driver_id NOT IN (
+        SELECT id FROM drivers WHERE principal_id IS NOT NULL AND principal_id <> ''
+      );
+
+      SELECT count(*) INTO unresolved_deliveries FROM deliveries
+      WHERE driver_id IS NOT NULL AND driver_id NOT IN (
+        SELECT id FROM drivers WHERE principal_id IS NOT NULL AND principal_id <> ''
+      );
+
+      IF unresolved_pings > 0 OR unresolved_unassignments > 0 OR unresolved_deliveries > 0 THEN
+        RAISE EXCEPTION
+          'Cannot drop drivers: unresolved driver_id rows (location_pings=%, order_unassignments=%, deliveries=%). Reconcile principals and retry.',
+          unresolved_pings, unresolved_unassignments, unresolved_deliveries;
+      END IF;
+    END $$
     """)
 
     execute("""

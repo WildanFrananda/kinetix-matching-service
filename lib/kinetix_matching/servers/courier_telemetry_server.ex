@@ -57,12 +57,16 @@ defmodule KinetixMatching.CourierTelemetryServer do
   defp point(_absent), do: nil
 
   @spec payable_principal(KinetixMatching.Dispatch.Delivery.t()) ::
-          {:ok, String.t()} | {:error, {:driver_not_payable, integer(), String.t()}}
+          {:ok, String.t()}
+          | {:error, {:driver_not_payable, integer(), String.t()} | :identity_unavailable}
   defp payable_principal(%{courier_principal_id: principal_id} = order)
        when is_binary(principal_id) and principal_id != "" do
     case Tracking.courier_standing(principal_id) do
       {:ok, %{courier_principal_id: resolved}} when is_binary(resolved) and resolved != "" ->
         {:ok, resolved}
+
+      {:error, :identity_unavailable} ->
+        {:error, :identity_unavailable}
 
       {:error, _reason} ->
         {:error, {:driver_not_payable, order.id, principal_id}}
@@ -140,6 +144,12 @@ defmodule KinetixMatching.CourierTelemetryServer do
       "order #{order_id} is assigned to courier #{courier_principal_id}, who has no active identity principal and " <>
         "cannot be paid. The assignment stands; link or reassign the driver."
     }
+  end
+
+  defp describe(:identity_unavailable) do
+    raise GRPC.RPCError,
+      status: GRPC.Status.unavailable(),
+      message: "identity service unavailable while verifying courier standing"
   end
 
   defp describe(%Ecto.Changeset{} = changeset) do

@@ -171,6 +171,15 @@ defmodule KinetixMatchingWeb.Events.Envelope do
   defp error_detail(:unavailable),
     do: detail("UNAVAILABLE", "unavailable", "Service temporarily unavailable", true)
 
+  defp error_detail(:identity_unavailable),
+    do:
+      detail(
+        "IDENTITY_UNAVAILABLE",
+        "identity_unavailable",
+        "Identity service temporarily unavailable",
+        true
+      )
+
   defp error_detail(other) when is_atom(other) do
     reason = Atom.to_string(other)
     detail(String.upcase(reason), reason, "Command failed", false)

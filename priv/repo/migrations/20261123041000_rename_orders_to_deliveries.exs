@@ -9,6 +9,9 @@ defmodule KinetixMatching.Repo.Migrations.RenameOrdersToDeliveries do
 
     rename(table(:orders), to: table(:deliveries))
 
+    execute("ALTER INDEX orders_order_number_index RENAME TO deliveries_order_number_index")
+    execute("ALTER INDEX orders_awb_number_index RENAME TO deliveries_awb_number_index")
+
     execute(
       "ALTER TABLE deliveries RENAME CONSTRAINT orders_pickup_latitude_range TO deliveries_pickup_latitude_range"
     )
@@ -35,6 +38,14 @@ defmodule KinetixMatching.Repo.Migrations.RenameOrdersToDeliveries do
 
     rename(table(:delivery_evidence), :order_id, to: :delivery_id)
     rename(table(:order_unassignments), :order_id, to: :delivery_id)
+
+    execute(
+      "ALTER TABLE delivery_evidence RENAME CONSTRAINT delivery_evidence_order_id_fkey TO delivery_evidence_delivery_id_fkey"
+    )
+
+    execute(
+      "ALTER TABLE order_unassignments RENAME CONSTRAINT order_unassignments_order_id_fkey TO order_unassignments_delivery_id_fkey"
+    )
 
     execute("""
     CREATE FUNCTION delivery_is_logged() RETURNS trigger
@@ -83,6 +94,14 @@ defmodule KinetixMatching.Repo.Migrations.RenameOrdersToDeliveries do
     rename(table(:delivery_evidence), :delivery_id, to: :order_id)
 
     execute(
+      "ALTER TABLE delivery_evidence RENAME CONSTRAINT delivery_evidence_delivery_id_fkey TO delivery_evidence_order_id_fkey"
+    )
+
+    execute(
+      "ALTER TABLE order_unassignments RENAME CONSTRAINT order_unassignments_delivery_id_fkey TO order_unassignments_order_id_fkey"
+    )
+
+    execute(
       "ALTER TABLE deliveries RENAME CONSTRAINT deliveries_status_valid TO orders_status_valid"
     )
 
@@ -105,6 +124,9 @@ defmodule KinetixMatching.Repo.Migrations.RenameOrdersToDeliveries do
     execute(
       "ALTER TABLE deliveries RENAME CONSTRAINT deliveries_pickup_latitude_range TO orders_pickup_latitude_range"
     )
+
+    execute("ALTER INDEX deliveries_order_number_index RENAME TO orders_order_number_index")
+    execute("ALTER INDEX deliveries_awb_number_index RENAME TO orders_awb_number_index")
 
     rename(table(:deliveries), to: table(:orders))
 

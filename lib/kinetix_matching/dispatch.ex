@@ -26,6 +26,7 @@ defmodule KinetixMatching.Dispatch do
           | :proof_unverifiable
           | :signature_required
           | :unlinked
+          | :identity_unavailable
 
   @type pod_upload :: %{
           upload_url: String.t(),
@@ -42,7 +43,11 @@ defmodule KinetixMatching.Dispatch do
   @type assign_error :: :no_driver_available | :not_found | :already_assigned
 
   @type manual_assign_error ::
-          assign_error() | :driver_not_found | :driver_not_tracked | :driver_unavailable
+          assign_error()
+          | :driver_not_found
+          | :driver_not_tracked
+          | :driver_unavailable
+          | :identity_unavailable
 
   @type cancel_error :: :not_found | :invalid_transition | :bound_to_order
 
@@ -499,11 +504,13 @@ defmodule KinetixMatching.Dispatch do
   defp stored_as_jpeg({:ok, :absent}, _digest), do: {:error, :invalid_proof}
   defp stored_as_jpeg({:error, :unavailable}, _digest), do: {:error, :proof_unverifiable}
 
-  @spec delivering_principal(Order.t()) :: {:ok, String.t()} | {:error, :unlinked}
+  @spec delivering_principal(Order.t()) ::
+          {:ok, String.t()} | {:error, :unlinked | :identity_unavailable}
   defp delivering_principal(%Order{courier_principal_id: courier_principal_id})
        when is_binary(courier_principal_id) and courier_principal_id != "" do
     case Tracking.courier_standing(courier_principal_id) do
       {:ok, %{courier_principal_id: principal}} -> {:ok, principal}
+      {:error, :identity_unavailable} -> {:error, :identity_unavailable}
       {:error, _reason} -> {:error, :unlinked}
     end
   end
@@ -514,18 +521,14 @@ defmodule KinetixMatching.Dispatch do
   defp ensure_pending(%Order{status: :pending}), do: :ok
   defp ensure_pending(%Order{}), do: {:error, :already_assigned}
 
-  @spec ensure_known_driver(Types.principal_id()) :: :ok | {:error, :driver_not_found}
+  @spec ensure_known_driver(Types.principal_id()) ::
+          :ok | {:error, :driver_not_found | :identity_unavailable}
   defp ensure_known_driver(courier_principal_id)
        when is_binary(courier_principal_id) and courier_principal_id != "" do
-    case Tracking.fetch_state(courier_principal_id) do
-      {:ok, _state} ->
-        :ok
-
-      {:error, :not_found} ->
-        case Tracking.courier_standing(courier_principal_id) do
-          {:ok, _standing} -> :ok
-          {:error, _reason} -> {:error, :driver_not_found}
-        end
+    case Tracking.courier_standing(courier_principal_id) do
+      {:ok, _standing} -> :ok
+      {:error, :identity_unavailable} -> {:error, :identity_unavailable}
+      {:error, _reason} -> {:error, :driver_not_found}
     end
   end
 

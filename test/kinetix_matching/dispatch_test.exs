@@ -560,6 +560,14 @@ defmodule KinetixMatching.DispatchTest do
       assert {:ok, assigned} = Dispatch.assign_order_to_driver(order.id, driver.id)
       assert assigned.courier_principal_id == driver.id
     end
+
+    test "refuses to assign a tracked driver whose standing was revoked" do
+      driver = online_driver(0.5, 100)
+      _ = registered_driver_fixture(driver.id, %{vehicle_plate: driver.vehicle_plate})
+      {:ok, order} = Dispatch.create_order(order_attrs())
+
+      assert {:error, :driver_not_found} = Dispatch.assign_order_to_driver(order.id, driver.id)
+    end
   end
 
   describe "a database failure while the assignment is written" do

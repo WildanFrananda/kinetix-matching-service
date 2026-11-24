@@ -43,7 +43,7 @@ defmodule KinetixMatching.Clients.IdentityGrpc do
           "[Identity] could not reach #{host} for courier #{courier_principal_id}: #{inspect(reason)}"
         )
 
-        count("unavailable")
+        count(GRPC.Status.unavailable())
         {:error, :unavailable}
     end
   end
@@ -55,7 +55,7 @@ defmodule KinetixMatching.Clients.IdentityGrpc do
 
     case Stub.get_courier_standing(channel, request, timeout: @call_timeout) do
       {:ok, %{found: false}} ->
-        count("ok")
+        count(GRPC.Status.ok())
         {:error, :not_found}
 
       {:ok,
@@ -66,7 +66,7 @@ defmodule KinetixMatching.Clients.IdentityGrpc do
          capacity_kg: capacity_kg,
          may_drive: may_drive
        }} ->
-        count("ok")
+        count(GRPC.Status.ok())
 
         {:ok,
          %{
@@ -82,7 +82,7 @@ defmodule KinetixMatching.Clients.IdentityGrpc do
             "#{rpc_error.status} #{rpc_error.message}"
         )
 
-        count(to_string(rpc_error.status))
+        count(rpc_error.status)
         {:error, outcome_of(rpc_error.status)}
 
       {:error, reason} ->
@@ -90,7 +90,7 @@ defmodule KinetixMatching.Clients.IdentityGrpc do
           "[Identity] GetCourierStanding for #{courier_principal_id} failed: #{inspect(reason)}"
         )
 
-        count("unknown")
+        count(GRPC.Status.unknown())
         {:error, :unavailable}
     end
   end
@@ -111,14 +111,16 @@ defmodule KinetixMatching.Clients.IdentityGrpc do
     |> Keyword.fetch!(:host)
   end
 
-  @spec count(String.t()) :: :ok
-  defp count(grpc_code) do
+  @spec count(non_neg_integer() | term()) :: :ok
+  defp count(status) when is_integer(status) and status in 0..16 do
     :telemetry.execute(
       Metrics.grpc_client_call_event(),
       %{count: 1},
-      %{peer: @peer, grpc_method: @method, grpc_code: grpc_code}
+      %{peer: @peer, grpc_method: @method, grpc_code: GRPC.Status.code_name(status)}
     )
   end
+
+  defp count(_status), do: count(GRPC.Status.unknown())
 
   @spec connect_options() :: keyword()
   defp connect_options do

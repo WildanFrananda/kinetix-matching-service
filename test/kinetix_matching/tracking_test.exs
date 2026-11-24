@@ -175,6 +175,17 @@ defmodule KinetixMatching.TrackingTest do
 
       assert {:error, :identity_unavailable} = Tracking.set_status(driver.id, :online)
     end
+
+    test "allows an already tracked driver to go offline when identity is unreachable", %{
+      driver: driver
+    } do
+      assert {:ok, %{status: :online}} = Tracking.set_status(driver.id, :online)
+
+      FakeIdentity.unreachable(true)
+      on_exit(fn -> FakeIdentity.unreachable(false) end)
+
+      assert {:ok, %{status: :offline}} = Tracking.set_status(driver.id, :offline)
+    end
   end
 
   describe "stop_tracking/1" do

@@ -71,6 +71,7 @@ defmodule KinetixMatchingWeb.Api.V1.DispatchController do
       {:error, :already_assigned} -> error(conn, :conflict, "already_assigned")
       {:error, :driver_not_tracked} -> error(conn, :conflict, "driver_not_tracked")
       {:error, :driver_unavailable} -> error(conn, :conflict, "driver_unavailable")
+      {:error, :identity_unavailable} -> error(conn, :service_unavailable, "identity_unavailable")
       :error -> error(conn, :bad_request, "invalid_id")
     end
   end

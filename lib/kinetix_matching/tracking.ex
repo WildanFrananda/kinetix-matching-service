@@ -142,6 +142,19 @@ defmodule KinetixMatching.Tracking do
 
   @spec set_status(Types.principal_id(), Types.driver_status()) ::
           {:ok, DriverState.t()} | {:error, DriverState.duty_error() | Types.reason()}
+  def set_status(courier_principal_id, :offline)
+      when is_binary(courier_principal_id) and courier_principal_id != "" do
+    case DriverState.set_duty(courier_principal_id, :offline) do
+      {:error, :not_found} ->
+        with {:ok, _pid} <- start_tracking(courier_principal_id) do
+          DriverState.set_duty(courier_principal_id, :offline)
+        end
+
+      result ->
+        result
+    end
+  end
+
   def set_status(courier_principal_id, status)
       when is_binary(courier_principal_id) and courier_principal_id != "" do
     with {:ok, _pid} <- start_tracking(courier_principal_id) do
