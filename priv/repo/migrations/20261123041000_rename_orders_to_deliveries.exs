@@ -29,11 +29,15 @@ defmodule KinetixMatching.Repo.Migrations.RenameOrdersToDeliveries do
     )
 
     execute(
-      "ALTER TABLE deliveries RENAME CONSTRAINT orders_weight_kg_range TO deliveries_weight_kg_range"
+      "ALTER TABLE deliveries RENAME CONSTRAINT orders_weight_kg_non_negative TO deliveries_weight_kg_non_negative"
     )
 
     execute(
       "ALTER TABLE deliveries RENAME CONSTRAINT orders_status_valid TO deliveries_status_valid"
+    )
+
+    execute(
+      "ALTER TABLE deliveries RENAME CONSTRAINT orders_driver_presence TO deliveries_driver_presence"
     )
 
     rename(table(:delivery_evidence), :order_id, to: :delivery_id)
@@ -102,11 +106,15 @@ defmodule KinetixMatching.Repo.Migrations.RenameOrdersToDeliveries do
     )
 
     execute(
+      "ALTER TABLE deliveries RENAME CONSTRAINT deliveries_driver_presence TO orders_driver_presence"
+    )
+
+    execute(
       "ALTER TABLE deliveries RENAME CONSTRAINT deliveries_status_valid TO orders_status_valid"
     )
 
     execute(
-      "ALTER TABLE deliveries RENAME CONSTRAINT deliveries_weight_kg_range TO orders_weight_kg_range"
+      "ALTER TABLE deliveries RENAME CONSTRAINT deliveries_weight_kg_non_negative TO orders_weight_kg_non_negative"
     )
 
     execute(
