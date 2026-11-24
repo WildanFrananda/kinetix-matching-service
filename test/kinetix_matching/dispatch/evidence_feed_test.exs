@@ -3,9 +3,9 @@ defmodule KinetixMatching.Dispatch.EvidenceFeedTest do
 
   import Ecto.Query
 
+  alias KinetixMatching.Dispatch.Delivery, as: Order
   alias KinetixMatching.Dispatch.DeliveryEvidence
   alias KinetixMatching.Dispatch.EvidenceFeed
-  alias KinetixMatching.Dispatch.Delivery, as: Order
   alias KinetixMatching.Proto.Common.V1.LogCursor
   alias KinetixMatching.Proto.Fulfillment.V1.DeliveriesSinceRequest
   alias KinetixMatching.Proto.Fulfillment.V1.DeliveriesSinceResponse

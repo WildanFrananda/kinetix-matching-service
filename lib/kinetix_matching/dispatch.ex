@@ -5,10 +5,10 @@ defmodule KinetixMatching.Dispatch do
 
   import Ecto.Query
 
+  alias KinetixMatching.Dispatch.Delivery, as: Order
   alias KinetixMatching.Dispatch.DeliveryEvidence
   alias KinetixMatching.Dispatch.DeliveryReporter
   alias KinetixMatching.Dispatch.Events
-  alias KinetixMatching.Dispatch.Delivery, as: Order
   alias KinetixMatching.Dispatch.Proof
   alias KinetixMatching.Dispatch.Unassignment
   alias KinetixMatching.PlatformTimeZone

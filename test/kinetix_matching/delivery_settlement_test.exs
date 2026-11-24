@@ -6,9 +6,9 @@ defmodule KinetixMatching.DeliverySettlementTest do
 
   alias KinetixMatching.Clients.OrderGrpc
   alias KinetixMatching.Dispatch
+  alias KinetixMatching.Dispatch.Delivery, as: Order
   alias KinetixMatching.Dispatch.DeliveryEvidence
   alias KinetixMatching.Dispatch.DeliveryReporter
-  alias KinetixMatching.Dispatch.Delivery, as: Order
   alias KinetixMatching.FakeIdentity
   alias KinetixMatching.FakeOrder
   alias KinetixMatching.FakeStorage

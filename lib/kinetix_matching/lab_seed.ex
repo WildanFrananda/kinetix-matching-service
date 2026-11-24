@@ -7,8 +7,8 @@ defmodule KinetixMatching.LabSeed do
   """
 
   alias KinetixMatching.Clients.Identity
-  alias KinetixMatching.Dispatch.DeliveryEvidence
   alias KinetixMatching.Dispatch.Delivery, as: Order
+  alias KinetixMatching.Dispatch.DeliveryEvidence
   alias KinetixMatching.Repo
 
   @type refusal ::

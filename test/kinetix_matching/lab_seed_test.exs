@@ -3,8 +3,8 @@ defmodule KinetixMatching.LabSeedTest do
 
   import KinetixMatching.TrackingFixtures
 
-  alias KinetixMatching.Dispatch.DeliveryEvidence
   alias KinetixMatching.Dispatch.Delivery, as: Order
+  alias KinetixMatching.Dispatch.DeliveryEvidence
   alias KinetixMatching.LabSeed
 
   @now ~U[2026-11-03 03:00:00.000000Z]

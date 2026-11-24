@@ -5,8 +5,8 @@ defmodule KinetixMatching.Dispatch.DeliveryEvidenceTest do
   import KinetixMatching.TrackingFixtures
 
   alias KinetixMatching.Dispatch
-  alias KinetixMatching.Dispatch.DeliveryEvidence
   alias KinetixMatching.Dispatch.Delivery, as: Order
+  alias KinetixMatching.Dispatch.DeliveryEvidence
   alias KinetixMatching.FakeOrder
   alias KinetixMatching.Tracking
   alias KinetixMatching.Tracking.StateCache

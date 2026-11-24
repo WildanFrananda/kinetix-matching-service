@@ -5,8 +5,8 @@ defmodule KinetixMatching.DispatchTest do
   import KinetixMatching.TrackingFixtures
 
   alias KinetixMatching.Dispatch
-  alias KinetixMatching.Dispatch.Events
   alias KinetixMatching.Dispatch.Delivery, as: Order
+  alias KinetixMatching.Dispatch.Events
   alias KinetixMatching.Dispatch.Unassignment
   alias KinetixMatching.FailingAssignment
   alias KinetixMatching.FakeStorage

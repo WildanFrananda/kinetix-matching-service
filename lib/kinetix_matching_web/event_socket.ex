@@ -6,8 +6,8 @@ defmodule KinetixMatchingWeb.EventSocket do
   @behaviour WebSock
 
   alias KinetixMatching.Dispatch
-  alias KinetixMatching.Dispatch.Events
   alias KinetixMatching.Dispatch.Delivery, as: Order
+  alias KinetixMatching.Dispatch.Events
   alias KinetixMatching.RateLimit
   alias KinetixMatching.Tracking
   alias KinetixMatching.Tracking.DriverState
