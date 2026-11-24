@@ -51,6 +51,14 @@ defmodule KinetixMatching.Repo.Migrations.RenameOrdersToDeliveries do
       "ALTER TABLE order_unassignments RENAME CONSTRAINT order_unassignments_order_id_fkey TO order_unassignments_delivery_id_fkey"
     )
 
+    execute(
+      "ALTER INDEX delivery_evidence_order_id_index RENAME TO delivery_evidence_delivery_id_index"
+    )
+
+    execute(
+      "ALTER INDEX order_unassignments_order_id_index RENAME TO order_unassignments_delivery_id_index"
+    )
+
     execute("""
     CREATE FUNCTION delivery_is_logged() RETURNS trigger
     LANGUAGE plpgsql AS $$
@@ -96,6 +104,14 @@ defmodule KinetixMatching.Repo.Migrations.RenameOrdersToDeliveries do
 
     rename(table(:order_unassignments), :delivery_id, to: :order_id)
     rename(table(:delivery_evidence), :delivery_id, to: :order_id)
+
+    execute(
+      "ALTER INDEX order_unassignments_delivery_id_index RENAME TO order_unassignments_order_id_index"
+    )
+
+    execute(
+      "ALTER INDEX delivery_evidence_delivery_id_index RENAME TO delivery_evidence_order_id_index"
+    )
 
     execute(
       "ALTER TABLE delivery_evidence RENAME CONSTRAINT delivery_evidence_delivery_id_fkey TO delivery_evidence_order_id_fkey"
