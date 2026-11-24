@@ -6,8 +6,11 @@ defmodule KinetixMatching.Types do
   `aliases`/`imports` types from here for a single, consistent definition.
   """
 
-  @typedoc "Positive integer based entity ID (driver_id, order_id, etc)."
+  @typedoc "Positive integer based entity ID (delivery_id, ping_id, etc)."
   @type id :: pos_integer()
+
+  @typedoc "Identity principal UUID string (courier_principal_id, merchant_principal_id)."
+  @type principal_id :: String.t()
 
   @typedoc "Standard result tuple. Always return this, do not raise for flow control."
   @type result(inner) :: {:ok, inner} | {:error, reason()}

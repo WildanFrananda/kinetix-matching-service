@@ -1,10 +1,11 @@
 defmodule KinetixMatchingWeb.Api.V1.DriverProfileController do
   @moduledoc """
-  Where the caller stands in this fleet — "which driver am I, and may I work?"
+  Where the caller stands in this fleet — "which courier am I, and may I work?"
   """
 
   use KinetixMatchingWeb, :controller
 
+  alias KinetixMatching.Clients.Identity
   alias KinetixMatching.Security.AccessClaims
   alias KinetixMatching.Tracking
 
@@ -13,8 +14,8 @@ defmodule KinetixMatchingWeb.Api.V1.DriverProfileController do
     %AccessClaims{principal_id: principal_id} = conn.assigns.current_caller
 
     case Tracking.driver_for_principal(principal_id) do
-      {:ok, driver} ->
-        json(conn, %{data: serialize(driver)})
+      {:ok, standing} ->
+        json(conn, %{data: serialize(standing)})
 
       {:error, :pending_approval} ->
         refuse(
@@ -31,6 +32,14 @@ defmodule KinetixMatchingWeb.Api.V1.DriverProfileController do
           "no_driver_record",
           "this account has no vehicle in this fleet yet"
         )
+
+      {:error, :identity_unavailable} ->
+        refuse(
+          conn,
+          :service_unavailable,
+          "identity_unavailable",
+          "identity service could not be reached to verify courier standing"
+        )
     end
   end
 
@@ -41,14 +50,14 @@ defmodule KinetixMatchingWeb.Api.V1.DriverProfileController do
     |> json(%{error: error, message: message})
   end
 
-  @spec serialize(KinetixMatching.Tracking.Driver.t()) :: map()
-  defp serialize(driver) do
+  @spec serialize(Identity.standing()) :: map()
+  defp serialize(standing) do
     %{
-      id: driver.id,
-      vehicle_plate: driver.vehicle_plate,
-      capacity_kg: driver.capacity_kg,
-      status: Tracking.live_status(driver.id),
-      active: driver.active
+      courier_principal_id: standing.courier_principal_id,
+      vehicle_plate: standing.vehicle_plate,
+      capacity_kg: standing.capacity_kg,
+      status: Tracking.live_status(standing.courier_principal_id),
+      active: standing.may_drive
     }
   end
 end

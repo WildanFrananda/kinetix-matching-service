@@ -7,7 +7,8 @@ defmodule KinetixMatching.CourierTelemetryServerTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias KinetixMatching.CourierTelemetryServer
   alias KinetixMatching.Dispatch
-  alias KinetixMatching.Dispatch.Order
+  alias KinetixMatching.Dispatch.Delivery, as: Order
+  alias KinetixMatching.FakeIdentity
   alias KinetixMatching.FakeOrder
   alias KinetixMatching.Proto.Common.V1.GeoPoint
   alias KinetixMatching.Proto.Fleet.V1.DispatchCourierRequest
@@ -18,7 +19,9 @@ defmodule KinetixMatching.CourierTelemetryServerTest do
   @merchant "11111111-2222-3333-4444-555555555555"
 
   setup do
-    Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
+    Enum.each(StateCache.all(), &StateCache.delete(&1.courier_principal_id))
+    :ok = FakeIdentity.start()
+    :ok = FakeIdentity.reset()
     :ok = FakeOrder.start()
     :ok = FakeOrder.reset()
     :ok
@@ -98,22 +101,22 @@ defmodule KinetixMatching.CourierTelemetryServerTest do
     end
 
     test "answers with the driver's principal, which is who gets paid" do
-      {_driver, principal} = payable_driver()
+      {driver, principal} = payable_driver()
 
       res = dispatch(order_number())
 
       assert res.assigned_driver_principal_id == principal
+      assert res.vehicle == driver.vehicle_plate
       assert String.starts_with?(res.dispatch_ref, "DISP-")
     end
 
-    test "does not name the person, and does not ask identity who they are" do
+    test "does not name the person's PII" do
       payable_driver()
 
       res = dispatch(order_number())
 
       assert res.assigned_driver_name == ""
       assert res.assigned_driver_phone == ""
-      refute Code.ensure_loaded?(KinetixMatching.Clients.Identity)
     end
 
     test "makes up no arrival time it does not know" do
@@ -233,8 +236,9 @@ defmodule KinetixMatching.CourierTelemetryServerTest do
       assert res.error.error_code == "NO_POINT"
     end
 
-    test "refuses an assignment to a driver who cannot be paid" do
-      track!(unlinked_driver_fixture())
+    test "refuses an assignment to a driver whose identity standing is revoked" do
+      {driver, principal} = payable_driver()
+      _ = registered_driver_fixture(principal, %{vehicle_plate: driver.vehicle_plate})
 
       res = dispatch(order_number())
 

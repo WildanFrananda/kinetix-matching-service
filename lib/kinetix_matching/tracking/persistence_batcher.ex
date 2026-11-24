@@ -2,33 +2,6 @@ defmodule KinetixMatching.Tracking.PersistenceBatcher do
   @moduledoc """
   Periodically writes each cached driver's latest position to `location_pings`
   (PRD 5.2).
-
-  ## What this guarantees
-
-  The last known position of every cached driver becomes durable within
-  `interval_ms`.
-
-  ## What it does NOT guarantee
-
-    * Every ping. `StateCache` is an ETS `:set` keyed by driver_id, so
-      positions arriving between two flushes overwrite one another and are
-      never persisted. At a 3s ping cadence and a 30s interval, roughly one
-      fix in ten survives. This table is a periodic SAMPLE of the position
-      stream, not the stream itself.
-
-    * Survival of a node restart. ETS is a cache, not a write-ahead log.
-      Anything not yet flushed is gone.
-
-  ## Why it cannot crash-loop
-
-  `Repo.insert_all/3` raises on any constraint violation, and
-  `on_conflict: :nothing` absorbs only unique violations — never CHECK or
-  foreign-key ones. Because nothing evicts a rejected entry from the cache, a
-  raising flush would re-read the same rows on every retry, forever, blocking
-  persistence for every other driver too. So the database call is confined to
-  `insert_all/1`, which converts the exception into a value at the I/O
-  boundary. This process always reschedules and never dies from a database
-  fault.
   """
 
   use GenServer
@@ -54,12 +27,9 @@ defmodule KinetixMatching.Tracking.PersistenceBatcher do
 
   @typedoc """
   One row ready for `Repo.insert_all/3`.
-
-  `insert_all` does not autogenerate timestamps, so `inserted_at` is supplied
-  explicitly — once per flush, not once per row.
   """
   @type row :: %{
-          driver_id: Types.id(),
+          courier_principal_id: Types.principal_id(),
           latitude: Types.latitude(),
           longitude: Types.longitude(),
           speed_kmh: float() | nil,
@@ -79,10 +49,6 @@ defmodule KinetixMatching.Tracking.PersistenceBatcher do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  @doc """
-  Flushes immediately instead of waiting for the next tick. Useful in tests
-  and for a graceful drain before shutdown.
-  """
   @spec flush_now() :: outcome()
   def flush_now, do: GenServer.call(__MODULE__, :flush_now, :infinity)
 
@@ -137,7 +103,7 @@ defmodule KinetixMatching.Tracking.PersistenceBatcher do
        ) do
     [
       %{
-        driver_id: state.driver_id,
+        courier_principal_id: state.courier_principal_id,
         latitude: lat,
         longitude: lng,
         speed_kmh: state.speed_kmh,

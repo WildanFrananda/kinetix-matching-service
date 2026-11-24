@@ -29,7 +29,7 @@ defmodule KinetixMatchingWeb.Plugs.AdminAuditTest do
   ]
 
   setup %{conn: conn} do
-    Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
+    Enum.each(StateCache.all(), &StateCache.delete(&1.courier_principal_id))
 
     test = self()
     handler = "admin-audit-#{System.unique_integer([:positive])}"
@@ -156,7 +156,7 @@ defmodule KinetixMatchingWeb.Plugs.AdminAuditTest do
     {conn, log} =
       at_info(fn ->
         post(conn, ~p"/api/v1/backoffice/dispatches/#{order.id}/assign", %{
-          "driver_id" => driver.id
+          "courier_principal_id" => driver.id
         })
       end)
 
@@ -196,11 +196,11 @@ defmodule KinetixMatchingWeb.Plugs.AdminAuditTest do
     :ok = FailingAssignment.refuse!()
 
     capture_log(fn ->
-      assert_error_sent 500, fn ->
+      assert_error_sent(500, fn ->
         post(conn, ~p"/api/v1/backoffice/dispatches/#{order.id}/assign", %{
-          "driver_id" => driver.id
+          "courier_principal_id" => driver.id
         })
-      end
+      end)
     end)
 
     assert %{action: "matching.assign", outcome: "failed"} = audited()
@@ -238,7 +238,7 @@ defmodule KinetixMatchingWeb.Plugs.AdminAuditTest do
 
     assert [line] = admin_lines(log)
     assert line["action"] == "matching.driver_dispatches_list"
-    assert line["target"] == Integer.to_string(driver.id)
+    assert line["target"] == driver.id
   end
 
   test "a seller turned away by role is no admin action", %{conn: conn} do

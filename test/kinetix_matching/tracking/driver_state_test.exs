@@ -8,7 +8,7 @@ defmodule KinetixMatching.Tracking.DriverStateTest do
   @after_ ~U[2026-07-21 10:00:01.000000Z]
 
   defp state(overrides) do
-    struct!(%DriverState{driver_id: 1}, overrides)
+    struct!(%DriverState{courier_principal_id: "principal-1"}, overrides)
   end
 
   describe "idle?/2" do

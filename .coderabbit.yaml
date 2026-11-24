@@ -1,0 +1,33 @@
+language: "en-US"
+reviews:
+  profile: "assertive"
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - "main"
+      - "development"
+  path_filters:
+    - "!lib/kinetix_matching/proto/**"
+    - "!.contracts/**"
+  path_instructions:
+    - path: "lib/kinetix_matching/**"
+      instructions: |
+        - Enforce `@type` and `@spec` typespecs cleanly so `mix dialyzer` and `mix credo` pass without issues.
+        - Keep `Ecto.Schema` modules as pure data objects without business logic or side-effect callbacks; keep domain logic in Contexts (`Dispatch`, `Tracking`, `Shipping`) and OTP GenServers.
+        - Flag any hardcoded fallback secrets, default environment URLs, static/legacy merchant API keys, pseudo-random metric fallbacks, or mocked/dummy production logic.
+        - Flag verbose or redundant step-by-step tutorial comments; keep code self-documenting and 100% English.
+    - path: "lib/kinetix_matching_web/**"
+      instructions: |
+        - Keep the web and WebSocket layer (Controllers, Router, EventSocket, Plugs) thin: parse/validate inputs, delegate domain operations to `KinetixMatching` contexts, and map responses/events cleanly without embedding business logic.
+    - path: "lib/kinetix_matching/servers/**"
+      instructions: |
+        - Verify gRPC handlers align with generated Protobuf stubs, map domain refusals to explicit gRPC status codes, and enforce explicit timeouts and atomic locking where required.
+    - path: "priv/repo/migrations/**"
+      instructions: |
+        - Verify migrations remain reversible where practical, enforce database-level constraints (`NULL`, `CHECK`, foreign keys, unique indexes), and key courier-owned tables on `courier_principal_id` without reintroducing local `drivers` or identity PII tables.
+    - path: "test/**"
+      instructions: |
+        - Verify ExUnit unit, concurrency, controller, WebSocket, and gRPC tests cover edge cases, race conditions, and error states cleanly without weakening assertions or hardcoding real secrets.
+chat:
+  auto_reply: true

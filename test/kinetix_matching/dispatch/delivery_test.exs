@@ -1,7 +1,7 @@
-defmodule KinetixMatching.Dispatch.OrderTest do
+defmodule KinetixMatching.Dispatch.DeliveryTest do
   use ExUnit.Case, async: true
 
-  alias KinetixMatching.Dispatch.Order
+  alias KinetixMatching.Dispatch.Delivery
 
   defp changeset(overrides \\ %{}) do
     attrs =
@@ -16,20 +16,20 @@ defmodule KinetixMatching.Dispatch.OrderTest do
         overrides
       )
 
-    Order.changeset(%Order{}, attrs)
+    Delivery.changeset(%Delivery{}, attrs)
   end
 
-  test "accepts a valid order" do
+  test "accepts a valid delivery" do
     assert changeset().valid?
   end
 
   test "defaults status to :pending and leaves it unassigned" do
-    assert %Order{}.status == :pending
-    assert %Order{}.driver_id == nil
+    assert %Delivery{}.status == :pending
+    assert %Delivery{}.courier_principal_id == nil
   end
 
   test "requires both pickup and dropoff coordinates" do
-    refute Order.changeset(%Order{}, %{}).valid?
+    refute Delivery.changeset(%Delivery{}, %{}).valid?
   end
 
   test "enforces coordinate ranges matching the CHECK constraints" do
@@ -45,6 +45,6 @@ defmodule KinetixMatching.Dispatch.OrderTest do
   end
 
   test "statuses/0 matches the DB CHECK constraint" do
-    assert Order.statuses() == [:pending, :assigned, :picked_up, :delivered, :cancelled]
+    assert Delivery.statuses() == [:pending, :assigned, :picked_up, :delivered, :cancelled]
   end
 end

@@ -65,7 +65,7 @@ defmodule KinetixMatching.Tracking.IdleReaper do
     reaped =
       StateCache.all()
       |> Enum.filter(&DriverState.idle?(&1, cutoff))
-      |> Enum.count(&(DriverState.stop_if_idle(&1.driver_id, cutoff) == :stopped))
+      |> Enum.count(&(DriverState.stop_if_idle(&1.courier_principal_id, cutoff) == :stopped))
 
     log_reaped(reaped)
     reaped

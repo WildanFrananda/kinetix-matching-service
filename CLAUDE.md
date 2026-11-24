@@ -216,19 +216,9 @@ identity was up, made identity answer once per request.
 `DispatchCourier` leaves `eta_minutes` at zero. It was a constant 10 whatever the distance; nothing read it,
 and an estimate the fleet does not have is not one to send.
 
-### A courier is on duty only when it says so
+### A courier is on duty only when it says so, and identity owns who they are
 
-Joining `driver:<id>` binds the driver's `DriverState` to that channel (monitored) and changes nothing else; the
-join reply carries the status. Only `status` puts a driver on duty, and the status is decided inside
-`DriverState` from the jobs it carries, so it cannot race a claim: `offline` always; `online` is `busy` once the
-driver carries `max_orders` jobs; `busy` only with a job (`no_active_job`). The `status` reply carries what was
-decided. A cold `DriverState` (node restart, or reaped) starts `offline` with its job count read from `orders`.
-`DriverState` writes every change of status to `drivers.status` (`StatusRecord`), and `/driver/me` answers the
-live status (`offline` when nothing tracks the driver), so neither can show a courier stale: until 2026-10-21
-claims and releases never reached the row. The channel that serves the driver dying takes it off duty; one a
-reconnect replaced changes nothing. The idle reaper never stops a driver with a live channel: until 2026-10-21
-it stopped a connected courier who had been offline for fifteen minutes, and `status online` then answered `ok`
-to a courier nothing tracked.
+Courier vehicle plate, capacity, and approval standing live in `kinetix-identity-service` (`courier_applications`), served over gRPC (`identity.v1.IdentityService/GetCourierStanding`). Matching keeps no `drivers` table. When a courier connects to `/ws/v1/events`, starts tracking, or goes on duty (`courier.duty.set`), matching checks `GetCourierStanding` and holds `vehicle_plate` and `capacity_kg` in `DriverState` in memory, keyed by `courier_principal_id`. When identity cannot be reached, the answer is `503` (`identity_unavailable`), never a refusal. Only `status` puts a courier on duty, and the status is decided inside `DriverState` from the jobs it carries, so it cannot race a claim: `offline` always; `online` is `busy` once the courier carries `max_orders` jobs; `busy` only with a job (`no_active_job`). A cold `DriverState` (node restart, or reaped) starts `offline` with its job count read from `deliveries` and its last position read from `location_pings` by `courier_principal_id`. `/driver/me` answers the courier's standing from identity together with the live status (`offline` when nothing tracks the courier). The channel that serves the courier dying takes it off duty; one a reconnect replaced changes nothing. The idle reaper never stops a courier with a live channel.
 
 ### Dispatch uses only positions sent while on duty
 

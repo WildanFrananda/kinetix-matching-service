@@ -40,7 +40,7 @@ defmodule KinetixMatchingWeb.EventSocketTest do
     on_exit(fn -> cleanup(driver.id) end)
 
     {:push, {:text, snapshot_raw}, state} =
-      EventSocket.init(%{role: :courier, driver_id: driver.id})
+      EventSocket.init(%{role: :courier, courier_principal_id: driver.id})
 
     on_exit(fn -> EventSocket.terminate(:normal, state) end)
 
@@ -87,7 +87,7 @@ defmodule KinetixMatchingWeb.EventSocketTest do
       assert assigned.event_sequence == 2
 
       {:push, {:text, snap_raw}, state} =
-        EventSocket.init(%{role: :courier, driver_id: driver.id})
+        EventSocket.init(%{role: :courier, courier_principal_id: driver.id})
 
       on_exit(fn -> EventSocket.terminate(:normal, state) end)
 
@@ -98,6 +98,7 @@ defmodule KinetixMatchingWeb.EventSocketTest do
       assert snapshot["data"]["dutyStatus"] == "busy"
       assert snapshot["data"]["activeOrder"]["id"] == order.id
       assert snapshot["data"]["activeOrder"]["orderNumber"] == order_number
+      assert snapshot["data"]["activeOrder"]["courierPrincipalId"] == driver.id
     end
   end
 
@@ -159,7 +160,7 @@ defmodule KinetixMatchingWeb.EventSocketTest do
       assert pos_env.event == "courier.location.updated"
       assert pos_env.orderId == order_number
       assert pos_env.sequence == nil
-      assert pos_env.data.driverId == driver.id
+      assert pos_env.data.courierPrincipalId == driver.id
       assert pos_env.data.latitude == -6.18
       assert pos_env.data.longitude == 106.83
       assert pos_env.data.bearingDeg == 120.0
@@ -219,7 +220,7 @@ defmodule KinetixMatchingWeb.EventSocketTest do
       assert limited_reply["error"]["code"] == "RATE_LIMITED"
       assert limited_reply["error"]["reason"] == "rate_limited"
       assert limited_reply["error"]["retryable"] == true
-      assert driver.id == state.driver_id
+      assert driver.id == state.courier_principal_id
     end
   end
 

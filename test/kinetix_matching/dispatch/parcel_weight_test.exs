@@ -11,7 +11,7 @@ defmodule KinetixMatching.Dispatch.ParcelWeightTest do
   @delivery {-6.2088, 106.8456}
 
   setup do
-    Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
+    Enum.each(StateCache.all(), &StateCache.delete(&1.courier_principal_id))
     :ok
   end
 
@@ -62,7 +62,7 @@ defmodule KinetixMatching.Dispatch.ParcelWeightTest do
              Dispatch.dispatch_for_order(order_number(), "merchant-1", @pickup, @delivery, 25_000)
 
     assert order.weight_kg == 25
-    assert order.driver_id == big.id
+    assert order.courier_principal_id == big.id
   end
 
   test "a caller that states no weight books a job of none, as before weights were sent" do

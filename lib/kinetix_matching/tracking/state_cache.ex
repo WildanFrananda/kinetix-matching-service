@@ -1,16 +1,6 @@
 defmodule KinetixMatching.Tracking.StateCache do
   @moduledoc """
-  ETS-backed cache of each driver's last known live state.
-
-  The table is owned by THIS process, not by the driver processes, so it
-  survives a `DriverState` crash. That is the entire point: a crashed driver
-  process rehydrates from memory with zero queries. Only a full node restart
-  leaves the table empty and forces a database read.
-
-  The table is `:public` on purpose. At the PRD's target of ~2000 updates per
-  second, routing every write through this GenServer would make it the system
-  bottleneck. Driver processes write directly; this process only owns the
-  table and keeps it alive.
+  ETS-backed cache of each courier's last known live state.
   """
 
   use GenServer
@@ -25,62 +15,38 @@ defmodule KinetixMatching.Tracking.StateCache do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  @doc """
-  Stores a driver's current state. Called on every update.
-  """
-  @spec put(Types.id(), DriverState.t()) :: :ok
-  def put(driver_id, state) do
-    _ = :ets.insert(@table, {driver_id, state})
+  @spec put(Types.principal_id(), DriverState.t()) :: :ok
+  def put(courier_principal_id, state) do
+    _ = :ets.insert(@table, {courier_principal_id, state})
     :ok
   end
 
-  @doc """
-  Reads a driver's cached state, if the node has seen it since booting.
-  """
-  @spec fetch(Types.id()) :: {:ok, DriverState.t()} | {:error, :not_found}
-  def fetch(driver_id) do
-    case :ets.lookup(@table, driver_id) do
-      [{^driver_id, state}] -> {:ok, state}
+  @spec fetch(Types.principal_id()) :: {:ok, DriverState.t()} | {:error, :not_found}
+  def fetch(courier_principal_id) do
+    case :ets.lookup(@table, courier_principal_id) do
+      [{^courier_principal_id, state}] -> {:ok, state}
       [] -> {:error, :not_found}
     end
   end
 
-  @doc """
-  Every cached driver state, including those with no known position yet.
-
-  Order is unspecified; this is a `:set`.
-  """
   @spec all() :: [DriverState.t()]
   def all do
     @table
     |> :ets.tab2list()
-    |> Enum.map(fn {_driver_id, %DriverState{} = state} -> state end)
+    |> Enum.map(fn {_courier_principal_id, %DriverState{} = state} -> state end)
   end
 
-  @doc """
-  Every cached driver that currently has a known position.
-
-  Exists so callers never have to name the ETS table themselves — the table
-  name is a private implementation detail of this module. Order is
-  unspecified; this is a `:set`.
-  """
   @spec with_coordinates() :: [DriverState.t()]
   def with_coordinates do
     Enum.reject(all(), &is_nil(&1.coordinates))
   end
 
-  @doc """
-  Evicts a driver, e.g. after a permanent logout.
-  """
-  @spec delete(Types.id()) :: :ok
-  def delete(driver_id) do
-    _ = :ets.delete(@table, driver_id)
+  @spec delete(Types.principal_id()) :: :ok
+  def delete(courier_principal_id) do
+    _ = :ets.delete(@table, courier_principal_id)
     :ok
   end
 
-  @doc """
-  Number of cached drivers. Returns 0 before the table exists.
-  """
   @spec size() :: non_neg_integer()
   def size do
     case :ets.info(@table, :size) do

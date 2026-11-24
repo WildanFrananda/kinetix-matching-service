@@ -8,7 +8,8 @@ defmodule KinetixMatching.DeliverySettlementTest do
   alias KinetixMatching.Dispatch
   alias KinetixMatching.Dispatch.DeliveryEvidence
   alias KinetixMatching.Dispatch.DeliveryReporter
-  alias KinetixMatching.Dispatch.Order
+  alias KinetixMatching.Dispatch.Delivery, as: Order
+  alias KinetixMatching.FakeIdentity
   alias KinetixMatching.FakeOrder
   alias KinetixMatching.FakeStorage
   alias KinetixMatching.Tracking
@@ -17,7 +18,9 @@ defmodule KinetixMatching.DeliverySettlementTest do
   @pickup {-6.1754, 106.8272}
 
   setup do
-    Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
+    Enum.each(StateCache.all(), &StateCache.delete(&1.courier_principal_id))
+    :ok = FakeIdentity.start()
+    :ok = FakeIdentity.reset()
     :ok = FakeOrder.start()
     :ok = FakeOrder.reset()
     :ok
@@ -129,31 +132,15 @@ defmodule KinetixMatching.DeliverySettlementTest do
     assert FakeOrder.calls() == []
   end
 
-  test "a driver with no identity principal cannot deliver, and nothing is reported" do
-    driver = unlinked_driver_fixture()
-
-    on_exit(fn ->
-      _ = Tracking.stop_tracking(driver.id)
-      _ = StateCache.delete(driver.id)
-    end)
-
-    {:ok, _pid} = Tracking.start_tracking(driver.id)
-    {:ok, _} = Tracking.set_status(driver.id, :online)
-
-    :ok =
-      Tracking.track_location(
-        driver.id,
-        telemetry_attrs(%{latitude: elem(@pickup, 0), longitude: elem(@pickup, 1)})
-      )
-
-    {:ok, _state} = Tracking.fetch_state(driver.id)
-
+  test "a driver whose identity standing is revoked cannot deliver, and nothing is reported" do
+    {driver, principal} = payable_driver()
     number = "ORD-#{System.unique_integer([:positive])}"
 
     {:ok, order} =
       Dispatch.dispatch_for_order(number, "merchant-1", @pickup, {-6.2088, 106.8456}, 1_200)
 
     {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+    _ = registered_driver_fixture(principal, %{vehicle_plate: driver.vehicle_plate})
 
     assert {:error, :unlinked} =
              Dispatch.mark_delivered(order.id, driver.id, proof_for(order.id))
@@ -172,11 +159,11 @@ defmodule KinetixMatching.DeliverySettlementTest do
     {:ok, order} =
       Dispatch.dispatch_for_order(number, "merchant-1", @pickup, {-6.2088, 106.8456}, 1_200)
 
-    assigned = order.driver_id
+    assigned = order.courier_principal_id
     refute assigned == nil
     {:ok, _} = Dispatch.mark_picked_up(order.id, assigned)
 
-    other = if impostor.id == assigned, do: impostor.id + 1_000, else: impostor.id
+    other = if impostor.id == assigned, do: "#{impostor.id}-other", else: impostor.id
     assert {:error, :forbidden} = Dispatch.mark_delivered(order.id, other, %{})
     assert FakeOrder.calls() == []
   end

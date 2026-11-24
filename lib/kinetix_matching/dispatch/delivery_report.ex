@@ -8,9 +8,8 @@ defmodule KinetixMatching.Dispatch.DeliveryReport do
   require Logger
 
   alias KinetixMatching.Clients.Order, as: OrderClient
-  alias KinetixMatching.Dispatch.Order
+  alias KinetixMatching.Dispatch.Delivery, as: Order
   alias KinetixMatching.Repo
-  alias KinetixMatching.Tracking
 
   @max_backoff_minutes 60
   @max_error_length 500
@@ -22,19 +21,18 @@ defmodule KinetixMatching.Dispatch.DeliveryReport do
     halt(order, "this fleet job carries no order number, so there is no order to tell")
   end
 
+  def attempt(%Order{courier_principal_id: principal} = order)
+      when is_binary(principal) and principal != "" do
+    order
+    |> report(principal)
+    |> record(order, principal)
+  end
+
   def attempt(%Order{} = order) do
-    with {:ok, driver} <- Tracking.fetch_driver(order.driver_id),
-         {:ok, principal} <- payable_principal(driver) do
-      order
-      |> report(principal)
-      |> record(order, principal)
-    else
-      _unpayable ->
-        defer(
-          order,
-          "driver #{order.driver_id} has no identity principal, so nobody can be named as the courier"
-        )
-    end
+    defer(
+      order,
+      "delivery #{order.id} has no courier_principal_id, so nobody can be named as the courier"
+    )
   end
 
   @spec due(pos_integer()) :: [Order.t()]
@@ -115,14 +113,6 @@ defmodule KinetixMatching.Dispatch.DeliveryReport do
     |> Repo.update!()
     |> then(&{:halted, &1})
   end
-
-  @spec payable_principal(KinetixMatching.Tracking.Driver.t()) ::
-          {:ok, String.t()} | {:error, :unlinked}
-  defp payable_principal(%{principal_id: principal})
-       when is_binary(principal) and principal != "",
-       do: {:ok, principal}
-
-  defp payable_principal(_driver), do: {:error, :unlinked}
 
   @spec trim(String.t()) :: String.t()
   defp trim(reason), do: String.slice(reason, 0, @max_error_length)

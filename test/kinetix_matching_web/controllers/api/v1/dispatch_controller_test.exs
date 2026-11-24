@@ -11,7 +11,7 @@ defmodule KinetixMatchingWeb.Api.V1.DispatchControllerTest do
   alias KinetixMatching.Tracking.StateCache
 
   setup %{conn: conn} do
-    Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
+    Enum.each(StateCache.all(), &StateCache.delete(&1.courier_principal_id))
     :ok = FakeOrder.start()
     :ok = FakeOrder.reset()
 
@@ -188,10 +188,12 @@ defmodule KinetixMatchingWeb.Api.V1.DispatchControllerTest do
 
       body =
         conn
-        |> post(~p"/api/v1/backoffice/dispatches/#{order.id}/assign", %{"driver_id" => driver.id})
+        |> post(~p"/api/v1/backoffice/dispatches/#{order.id}/assign", %{
+          "courier_principal_id" => driver.id
+        })
         |> json_response(200)
 
-      assert body["data"]["driver_id"] == driver.id
+      assert body["data"]["courier_principal_id"] == driver.id
       assert body["data"]["status"] == "assigned"
     end
 
@@ -203,7 +205,9 @@ defmodule KinetixMatchingWeb.Api.V1.DispatchControllerTest do
 
       body =
         conn
-        |> post(~p"/api/v1/backoffice/dispatches/#{order.id}/assign", %{"driver_id" => second.id})
+        |> post(~p"/api/v1/backoffice/dispatches/#{order.id}/assign", %{
+          "courier_principal_id" => second.id
+        })
         |> json_response(409)
 
       assert body["error"] == "already_assigned"
@@ -217,7 +221,7 @@ defmodule KinetixMatchingWeb.Api.V1.DispatchControllerTest do
         |> post(~p"/api/v1/backoffice/dispatches/#{order.id}/assign", %{})
         |> json_response(400)
 
-      assert body["error"] == "driver_id_required"
+      assert body["error"] == "courier_principal_id_required"
     end
   end
 
@@ -287,7 +291,7 @@ defmodule KinetixMatchingWeb.Api.V1.DispatchControllerTest do
         |> json_response(200)
 
       assert body["data"]["status"] == "pending"
-      assert body["data"]["driver_id"] == nil
+      assert body["data"]["courier_principal_id"] == nil
       assert body["data"]["awb_number"] == order.awb_number
     end
 
@@ -365,7 +369,9 @@ defmodule KinetixMatchingWeb.Api.V1.DispatchControllerTest do
 
       body =
         conn
-        |> post(~p"/api/v1/backoffice/dispatches/#{order.id}/assign", %{"driver_id" => 99_999_999})
+        |> post(~p"/api/v1/backoffice/dispatches/#{order.id}/assign", %{
+          "courier_principal_id" => "principal-unknown"
+        })
         |> json_response(404)
 
       assert body["error"] == "driver_not_found"
@@ -377,7 +383,9 @@ defmodule KinetixMatchingWeb.Api.V1.DispatchControllerTest do
 
       body =
         conn
-        |> post(~p"/api/v1/backoffice/dispatches/#{order.id}/assign", %{"driver_id" => driver.id})
+        |> post(~p"/api/v1/backoffice/dispatches/#{order.id}/assign", %{
+          "courier_principal_id" => driver.id
+        })
         |> json_response(409)
 
       assert body["error"] == "driver_not_tracked"

@@ -18,7 +18,8 @@ defmodule KinetixMatchingWeb.Api.V1.DriverController do
 
   @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show(conn, %{"id" => id}) do
-    with {:ok, driver_id} <- parse_id(id), {:ok, state} <- Tracking.fetch_state(driver_id) do
+    with {:ok, courier_principal_id} <- parse_principal_id(id),
+         {:ok, state} <- Tracking.fetch_state(courier_principal_id) do
       json(conn, %{data: serialize(state)})
     else
       {:error, :not_found} -> error(conn, :not_found, "not_found")
@@ -40,7 +41,9 @@ defmodule KinetixMatchingWeb.Api.V1.DriverController do
 
   defp serialize(%DriverState{} = state) do
     %{
-      id: state.driver_id,
+      courier_principal_id: state.courier_principal_id,
+      vehicle_plate: state.vehicle_plate,
+      capacity_kg: state.capacity_kg,
       status: state.status,
       coordinates: coordinates(state.coordinates),
       speed_kmh: state.speed_kmh,
@@ -57,12 +60,14 @@ defmodule KinetixMatchingWeb.Api.V1.DriverController do
   defp coordinates(nil), do: nil
   defp coordinates({lat, lng}), do: %{latitude: lat, longitude: lng}
 
-  defp parse_id(id) do
-    case Integer.parse(id) do
-      {n, ""} when n > 0 -> {:ok, n}
-      _invalid -> :error
+  defp parse_principal_id(id) when is_binary(id) do
+    case String.trim(id) do
+      "" -> :error
+      trimmed -> {:ok, trimmed}
     end
   end
+
+  defp parse_principal_id(_id), do: :error
 
   @spec parse_nearby(map()) :: {:ok, {float(), float()}, float()} | :error
   defp parse_nearby(%{"latitude" => lat, "longitude" => lng} = params) do

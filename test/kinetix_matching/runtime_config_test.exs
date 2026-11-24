@@ -2,12 +2,13 @@ defmodule KinetixMatching.RuntimeConfigTest do
   use ExUnit.Case, async: false
 
   @runtime Path.expand("../../config/runtime.exs", __DIR__)
-  @required ["ORDER_GRPC_HOST", "KINETIX_TIME_ZONE"]
+  @required ["IDENTITY_GRPC_HOST", "ORDER_GRPC_HOST", "KINETIX_TIME_ZONE"]
 
   setup do
     previous = Map.new(@required, &{&1, System.get_env(&1)})
     on_exit(fn -> Enum.each(previous, &restore/1) end)
 
+    System.put_env("IDENTITY_GRPC_HOST", "kinetix-identity-service:50052")
     System.put_env("ORDER_GRPC_HOST", "kinetix-order-service:50055")
     System.put_env("KINETIX_TIME_ZONE", "Asia/Jakarta")
     :ok
@@ -18,8 +19,11 @@ defmodule KinetixMatching.RuntimeConfigTest do
 
   defp read, do: Config.Reader.read!(@runtime, env: :dev)
 
-  test "names order's address and the platform's zone when both are set" do
+  test "names identity's address, order's address and the platform's zone when all are set" do
     config = read()
+
+    assert config[:kinetix_matching][KinetixMatching.Clients.IdentityGrpc][:host] ==
+             "kinetix-identity-service:50052"
 
     assert config[:kinetix_matching][KinetixMatching.Clients.OrderGrpc][:host] ==
              "kinetix-order-service:50055"

@@ -60,6 +60,7 @@ config :kinetix_matching, start_grpc_server: false
 
 config :swoosh, :api_client, false
 
+config :kinetix_matching, KinetixMatching.Clients.Identity, impl: KinetixMatching.FakeIdentity
 config :kinetix_matching, KinetixMatching.Clients.Order, impl: KinetixMatching.FakeOrder
 config :kinetix_matching, :time_zone, "Asia/Jakarta"
 config :kinetix_matching, KinetixMatching.Storage, impl: KinetixMatching.FakeStorage

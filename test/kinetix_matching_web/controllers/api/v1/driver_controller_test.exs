@@ -7,7 +7,7 @@ defmodule KinetixMatchingWeb.Api.V1.DriverControllerTest do
   alias KinetixMatching.Tracking.StateCache
 
   setup %{conn: conn} do
-    Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
+    Enum.each(StateCache.all(), &StateCache.delete(&1.courier_principal_id))
 
     conn =
       conn
@@ -42,18 +42,20 @@ defmodule KinetixMatchingWeb.Api.V1.DriverControllerTest do
   test "GET /drivers lists tracked drivers", %{conn: conn} do
     driver = track!(-6.2, 106.8)
     body = conn |> get(~p"/api/v1/drivers") |> json_response(200)
-    assert driver.id in Enum.map(body["data"], & &1["id"])
+    assert driver.id in Enum.map(body["data"], & &1["courier_principal_id"])
   end
 
   test "GET /drivers/:id returns one driver", %{conn: conn} do
     driver = track!(-6.2, 106.8)
     body = conn |> get(~p"/api/v1/drivers/#{driver.id}") |> json_response(200)
-    assert body["data"]["id"] == driver.id
+    assert body["data"]["courier_principal_id"] == driver.id
+    assert body["data"]["vehicle_plate"] == driver.vehicle_plate
+    assert body["data"]["capacity_kg"] == driver.capacity_kg
     assert body["data"]["coordinates"]["latitude"] == -6.2
   end
 
   test "GET /drivers/:id is 404 for an untracked driver", %{conn: conn} do
-    assert conn |> get(~p"/api/v1/drivers/999999") |> json_response(404)
+    assert conn |> get(~p"/api/v1/drivers/principal-untracked") |> json_response(404)
   end
 
   test "GET /drivers/nearby returns drivers with distance", %{conn: conn} do

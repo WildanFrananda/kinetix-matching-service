@@ -13,7 +13,7 @@ defmodule KinetixMatching.Dispatch.ReDispatcherTest do
   @pickup {-6.1754, 106.8272}
 
   setup do
-    Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
+    Enum.each(StateCache.all(), &StateCache.delete(&1.courier_principal_id))
     start_supervised!(ReDispatcher)
     :ok
   end
@@ -68,7 +68,7 @@ defmodule KinetixMatching.Dispatch.ReDispatcherTest do
     driver = online_driver_at_pickup()
     assert {:ok, 1} = ReDispatcher.sweep_now()
 
-    assert {:ok, %{status: :assigned, driver_id: id}} = Dispatch.fetch_order(order.id)
+    assert {:ok, %{status: :assigned, courier_principal_id: id}} = Dispatch.fetch_order(order.id)
     assert id == driver.id
   end
 
@@ -119,7 +119,9 @@ defmodule KinetixMatching.Dispatch.ReDispatcherTest do
 
     first = online_driver_at_pickup()
     order = order_at_pickup()
-    {:ok, %{driver_id: taken_from}} = Dispatch.assign_order_to_driver(order.id, first.id)
+
+    {:ok, %{courier_principal_id: taken_from}} =
+      Dispatch.assign_order_to_driver(order.id, first.id)
 
     second = online_driver_at_pickup()
     {:ok, _pending} = Dispatch.unassign_order(order.id, "admin-principal")
@@ -128,7 +130,7 @@ defmodule KinetixMatching.Dispatch.ReDispatcherTest do
              match?({:ok, %{status: :assigned}}, Dispatch.fetch_order(order.id))
            end)
 
-    assert {:ok, %{driver_id: now_with}} = Dispatch.fetch_order(order.id)
+    assert {:ok, %{courier_principal_id: now_with}} = Dispatch.fetch_order(order.id)
     assert taken_from == first.id
     assert now_with == second.id
   end

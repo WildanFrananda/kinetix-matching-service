@@ -8,6 +8,7 @@ defmodule KinetixMatching.Observability.GrpcClientMetricsSeed do
   @seed %{count: 0}
 
   @calls [
+    {"identity", "/identity.v1.IdentityService/GetCourierStanding"},
     {"order", "/order.v1.OrderService/OrderDelivered"}
   ]
 

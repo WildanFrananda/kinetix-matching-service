@@ -8,17 +8,15 @@ defmodule KinetixMatching.Dispatch.Unassignment do
 
   import Ecto.Changeset
 
-  alias KinetixMatching.Dispatch.Order
-  alias KinetixMatching.Tracking.Driver
+  alias KinetixMatching.Dispatch.Delivery
   alias KinetixMatching.Types
 
   @type t :: %__MODULE__{
           __meta__: Ecto.Schema.Metadata.t(),
           id: Types.id() | nil,
-          order_id: Types.id() | nil,
-          order: Order.t() | Ecto.Association.NotLoaded.t() | nil,
-          driver_id: Types.id() | nil,
-          driver: Driver.t() | Ecto.Association.NotLoaded.t() | nil,
+          delivery_id: Types.id() | nil,
+          delivery: Delivery.t() | Ecto.Association.NotLoaded.t() | nil,
+          courier_principal_id: Types.principal_id() | nil,
           unassigned_by: String.t() | nil,
           inserted_at: DateTime.t() | nil
         }
@@ -26,20 +24,27 @@ defmodule KinetixMatching.Dispatch.Unassignment do
   @type changeset :: Ecto.Changeset.t(t())
 
   schema "order_unassignments" do
-    belongs_to :order, Order
-    belongs_to :driver, Driver
-    field :unassigned_by, :string
+    belongs_to(:delivery, Delivery)
+    field(:courier_principal_id, :string)
+    field(:unassigned_by, :string)
 
     timestamps(type: :utc_datetime_usec, updated_at: false)
   end
 
-  @spec changeset(Order.t(), Types.id(), String.t()) :: changeset()
-  def changeset(%Order{} = order, driver_id, unassigned_by) do
+  @spec changeset(Delivery.t(), Types.principal_id(), String.t()) :: changeset()
+  def changeset(%Delivery{} = delivery, courier_principal_id, unassigned_by)
+      when is_binary(courier_principal_id) and is_binary(unassigned_by) do
     %__MODULE__{}
-    |> change(order_id: order.id, driver_id: driver_id, unassigned_by: unassigned_by)
-    |> validate_required([:order_id, :driver_id, :unassigned_by])
-    |> foreign_key_constraint(:order_id)
-    |> foreign_key_constraint(:driver_id)
+    |> change(
+      delivery_id: delivery.id,
+      courier_principal_id: courier_principal_id,
+      unassigned_by: unassigned_by
+    )
+    |> validate_required([:delivery_id, :courier_principal_id, :unassigned_by])
+    |> foreign_key_constraint(:delivery_id)
+    |> check_constraint(:courier_principal_id,
+      name: :order_unassignments_courier_principal_id_present
+    )
     |> check_constraint(:unassigned_by, name: :order_unassignments_unassigned_by_present)
   end
 end

@@ -3,9 +3,9 @@ defmodule KinetixMatching.TrackingTest do
 
   import KinetixMatching.TrackingFixtures
 
-  alias KinetixMatching.Dispatch.Order
+  alias KinetixMatching.Dispatch.Delivery, as: Order
+  alias KinetixMatching.FakeIdentity
   alias KinetixMatching.Tracking
-  alias KinetixMatching.Tracking.Driver
   alias KinetixMatching.Tracking.DriverRegistry
   alias KinetixMatching.Tracking.DriverState
   alias KinetixMatching.Tracking.StateCache
@@ -42,10 +42,8 @@ defmodule KinetixMatching.TrackingTest do
   end
 
   describe "start_tracking/1" do
-    test "a cold start is off duty whatever the table says, and counts the jobs carried",
+    test "a cold start is off duty and counts the jobs carried",
          %{driver: driver} do
-      Repo.update_all(where(Driver, id: ^driver.id), set: [status: :busy])
-
       {:ok, _job} =
         %Order{}
         |> Order.changeset(%{
@@ -55,7 +53,7 @@ defmodule KinetixMatching.TrackingTest do
           dropoff_longitude: 107.6
         })
         |> Ecto.Changeset.put_change(:status, :picked_up)
-        |> Ecto.Changeset.put_change(:driver_id, driver.id)
+        |> Ecto.Changeset.put_change(:courier_principal_id, driver.id)
         |> Repo.insert()
 
       track!(driver)
@@ -64,6 +62,8 @@ defmodule KinetixMatching.TrackingTest do
       assert state.status == :offline
       assert state.active_orders_count == 1
       assert state.coordinates == nil
+      assert state.vehicle_plate == driver.vehicle_plate
+      assert state.capacity_kg == driver.capacity_kg
 
       assert {:ok, %{status: :busy}} = Tracking.set_status(driver.id, :online)
     end
@@ -73,8 +73,15 @@ defmodule KinetixMatching.TrackingTest do
       assert {:ok, ^pid} = Tracking.start_tracking(driver.id)
     end
 
-    test "refuses a driver that does not exist" do
-      assert {:error, :not_found} = Tracking.start_tracking(999_999_999)
+    test "refuses a driver that does not exist in identity" do
+      assert {:error, :not_found} = Tracking.start_tracking("principal-unknown")
+    end
+
+    test "refuses a driver that is pending approval in identity" do
+      pending =
+        registered_driver_fixture("principal-pending-#{System.unique_integer([:positive])}")
+
+      assert {:error, :pending_approval} = Tracking.start_tracking(pending.id)
     end
   end
 
@@ -105,12 +112,12 @@ defmodule KinetixMatching.TrackingTest do
   end
 
   describe "set_status/2" do
-    test "writes through to both the database and the live process", %{driver: driver} do
+    test "updates the live process status", %{driver: driver} do
       track!(driver)
 
       assert {:ok, updated} = Tracking.set_status(driver.id, :online)
       assert updated.status == :online
-      assert {:ok, %{status: :online}} = Tracking.fetch_driver(driver.id)
+      assert Tracking.live_status(driver.id) == :online
       assert {:ok, %{status: :online}} = Tracking.fetch_state(driver.id)
     end
 
@@ -119,7 +126,6 @@ defmodule KinetixMatching.TrackingTest do
       {:ok, _} = Tracking.set_status(driver.id, :online)
 
       assert {:error, :no_active_job} = Tracking.set_status(driver.id, :busy)
-      assert {:ok, %{status: :online}} = Tracking.fetch_driver(driver.id)
       assert {:ok, %{status: :online}} = Tracking.fetch_state(driver.id)
     end
 
@@ -147,11 +153,6 @@ defmodule KinetixMatching.TrackingTest do
       assert {:ok, %{status: :online}} = Tracking.set_status(driver.id, :online)
     end
 
-    test "records the status even when nobody is tracking the driver", %{driver: driver} do
-      assert {:ok, _} = Tracking.set_status(driver.id, :online)
-      assert {:ok, %{status: :online}} = Tracking.fetch_driver(driver.id)
-    end
-
     test "a cold restart with an empty cache takes the driver off duty", %{driver: driver} do
       track!(driver)
       {:ok, _} = Tracking.set_status(driver.id, :online)
@@ -163,38 +164,16 @@ defmodule KinetixMatching.TrackingTest do
       assert {:ok, %{status: :offline}} = Tracking.fetch_state(driver.id)
     end
 
-    test "the drivers row says what the live state decided, whichever way it changes", %{
-      driver: driver
-    } do
-      track!(driver)
-      row = fn -> Repo.get!(Driver, driver.id).status end
-
-      {:ok, _} = Tracking.set_status(driver.id, :online)
-      assert row.() == :online
-
-      {:ok, _claimed} = DriverState.claim(driver.id)
-      assert row.() == :busy
-
-      :ok = DriverState.release(driver.id)
-      {:ok, _} = Tracking.fetch_state(driver.id)
-      assert row.() == :online
-
-      {:ok, _} = Tracking.set_status(driver.id, :offline)
-      assert row.() == :offline
-    end
-
-    test "a cold start corrects a row left on duty", %{driver: driver} do
-      Repo.update_all(where(Driver, id: ^driver.id), set: [status: :online])
-
-      track!(driver)
-
-      assert {:ok, %{status: :offline}} = Tracking.fetch_state(driver.id)
-      assert Repo.get!(Driver, driver.id).status == :offline
-    end
-
     test "starts the live process when nothing tracks the driver", %{driver: driver} do
       assert {:ok, %{status: :online}} = Tracking.set_status(driver.id, :online)
       assert {:ok, %{status: :online}} = Tracking.fetch_state(driver.id)
+    end
+
+    test "refuses to put a driver on duty when identity is unreachable", %{driver: driver} do
+      FakeIdentity.unreachable(true)
+      on_exit(fn -> FakeIdentity.unreachable(false) end)
+
+      assert {:error, :identity_unavailable} = Tracking.set_status(driver.id, :online)
     end
   end
 
@@ -238,7 +217,7 @@ defmodule KinetixMatching.TrackingTest do
 
       track!(driver)
 
-      assert_receive {:driver_updated, %{driver_id: ^driver_id}}
+      assert_receive {:driver_updated, %{courier_principal_id: ^driver_id}}
     end
 
     test "a driver topic ignores other drivers", %{driver: driver} do
@@ -258,7 +237,7 @@ defmodule KinetixMatching.TrackingTest do
     @centre {-6.1754, 106.8272}
 
     setup do
-      Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
+      Enum.each(StateCache.all(), &StateCache.delete(&1.courier_principal_id))
       :ok
     end
 
@@ -291,8 +270,8 @@ defmodule KinetixMatching.TrackingTest do
 
       assert [{first, first_km}, {second, second_km}] = Tracking.nearby(@centre, 3.0)
 
-      assert first.driver_id == near.id
-      assert second.driver_id == far.id
+      assert first.courier_principal_id == near.id
+      assert second.courier_principal_id == far.id
       assert_in_delta first_km, 0.5, 0.01
       assert_in_delta second_km, 2.0, 0.01
     end
@@ -302,7 +281,7 @@ defmodule KinetixMatching.TrackingTest do
       _outside = place!(north(@centre, 3.01), :online)
 
       assert [{state, _km}] = Tracking.nearby(@centre, 3.0)
-      assert state.driver_id == inside.id
+      assert state.courier_principal_id == inside.id
     end
 
     test "skips drivers whose status does not match" do
@@ -310,7 +289,7 @@ defmodule KinetixMatching.TrackingTest do
       online = place!(north(@centre, 1.0), :online)
 
       assert [{state, _km}] = Tracking.nearby(@centre, 3.0)
-      assert state.driver_id == online.id
+      assert state.courier_principal_id == online.id
     end
 
     test "status: :any accepts every availability" do
@@ -336,7 +315,7 @@ defmodule KinetixMatching.TrackingTest do
       place!(north(@centre, 2.0), :online)
 
       assert [{state, _km}] = Tracking.nearby(@centre, 3.0, limit: 1)
-      assert state.driver_id == near.id
+      assert state.courier_principal_id == near.id
     end
 
     test "returns an empty list when the fleet is far away" do
@@ -357,7 +336,7 @@ defmodule KinetixMatching.TrackingTest do
       big = place!(north(@centre, 2.0), :online, 500)
 
       assert [{state, _km}] = Tracking.nearby(@centre, 3.0, min_capacity_kg: 200)
-      assert state.driver_id == big.id
+      assert state.courier_principal_id == big.id
     end
   end
 
@@ -367,16 +346,16 @@ defmodule KinetixMatching.TrackingTest do
       %{linked: active_driver_fixture(principal), principal: principal}
     end
 
-    test "finds the driver its principal names", %{linked: linked, principal: principal} do
+    test "finds the driver standing its principal names", %{linked: linked, principal: principal} do
       assert {:ok, found} = Tracking.driver_for_principal(principal)
-      assert found.id == linked.id
+      assert found.courier_principal_id == linked.id
     end
 
     test "refuses a principal linked to nothing" do
       assert {:error, :unlinked} = Tracking.driver_for_principal("principal-nobody")
     end
 
-    test "refuses an empty principal, which is what an unlinked row holds" do
+    test "refuses an empty principal" do
       assert {:error, :unlinked} = Tracking.driver_for_principal("")
     end
 
@@ -385,38 +364,6 @@ defmodule KinetixMatching.TrackingTest do
       _pending = registered_driver_fixture(principal)
 
       assert {:error, :pending_approval} = Tracking.driver_for_principal(principal)
-    end
-
-    test "registration binds the principal, so no operator step stands between the two" do
-      principal = "principal-bound-#{System.unique_integer([:positive])}"
-
-      assert {:ok, registered, :created} =
-               Tracking.register_driver_for_principal(principal, driver_attrs())
-
-      assert registered.principal_id == principal
-      assert registered.active == false
-    end
-
-    test "registering the same principal twice is one row, reported as already there" do
-      principal = "principal-twice-#{System.unique_integer([:positive])}"
-
-      assert {:ok, first, :created} =
-               Tracking.register_driver_for_principal(principal, driver_attrs())
-
-      assert {:ok, again, :existing} =
-               Tracking.register_driver_for_principal(principal, driver_attrs())
-
-      assert again.id == first.id
-    end
-
-    test "a principal_id in the request body is discarded, never trusted" do
-      principal = "principal-token-#{System.unique_integer([:positive])}"
-      forged = "principal-forged-#{System.unique_integer([:positive])}"
-
-      {:ok, registered, :created} =
-        Tracking.register_driver_for_principal(principal, driver_attrs(%{principal_id: forged}))
-
-      assert registered.principal_id == principal
     end
   end
 end
